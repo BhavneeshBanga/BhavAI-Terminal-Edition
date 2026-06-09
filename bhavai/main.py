@@ -44,6 +44,40 @@ def wake(action):
         sys.exit(1)
         
     # Print beautiful activation banner
+    import time
+    R   = "\033[0m"
+    YEL = "\033[1;93m"
+    BOLD= "\033[1m"
+    YEL = "\033[1;93m"
+    GOLD= "\033[33m"
+
+    def typewrite(text, delay=0.015, color=""):
+        for ch in text:
+            sys.stdout.write(color + ch + R)
+            sys.stdout.flush()
+            time.sleep(delay)
+        print()
+    import os
+    def clear():
+        os.system("cls" if os.name == "nt" else "clear")
+    clear()
+    print(YEL + "▄" * 58 + R)
+    print()
+    logo = [
+        r" ██████╗ ██╗  ██╗ █████╗ ██╗   ██╗ █████╗ ██╗",
+        r" ██╔══██╗██║  ██║██╔══██╗██║   ██║██╔══██╗██║",
+        r" ██████╔╝███████║███████║██║   ██║███████║██║",
+        r" ██╔══██╗██╔══██║██╔══██║╚██╗ ██╔╝██╔══██║██║",
+        r" ██████╔╝██║  ██║██║  ██║ ╚████╔╝ ██║  ██║██║",
+        r" ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝  ╚═══╝  ╚═╝  ╚═╝╚═╝",
+    ]
+    for line in logo:
+        print(GOLD + BOLD + line + R)
+    print()
+    typewrite("  ⚡  Terminal Mode — Bhavneesh ke liye  ⚡", delay=0.022, color=GOLD + BOLD)
+    print(YEL + "▀" * 58 + R)
+    print()
+
     banner_text = (
         f"🚀 [bold green]BhavAI Activated Successfully![/bold green]\n\n"
         f"📍 [bold]Location:[/bold] {cfg['CWD']}\n"

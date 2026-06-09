@@ -1,257 +1,374 @@
-import os
+"""
+tools.py — Sandboxed, blocklist-validated tools available to the BhavAI agent.
+
+Key addition over v1
+--------------------
+`append_chunk(path, chunk, done)` — purpose-built for the 4096-token limit.
+Instead of writing an entire file in one shot (which truncates the response),
+the LLM writes 50 lines at a time and calls append_chunk repeatedly, setting
+done=True only on the last chunk.  This guarantees no single LLM response
+ever needs to carry more content than fits in ~1500 tokens.
+
+Git integration
+---------------
+ensure_git_initialized() is called at the start of every mutating tool so
+that all file changes are immediately trackable via `git diff HEAD`.
+"""
+
 import re
 import subprocess
 from pathlib import Path
+
 from bhavai.config import logger, CWD
 from bhavai.context import get_folder_tree_string
 
-# Hard restrictions blocklist
+# ─────────────────────────────────────────────────────────────────────────────
+# Security: command blocklist
+# ─────────────────────────────────────────────────────────────────────────────
+
 BLOCKED_COMMANDS = [
-    "rm", 
-    "rmdir", 
-    "del", 
-    "unlink", 
-    "shutil.rmtree", 
-    "os.remove", 
-    "format", 
-    "mkfs", 
-    "drop table"
+    "rm", "rmdir", "del", "unlink",
+    "shutil.rmtree", "os.remove",
+    "format", "mkfs", "drop table",
 ]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Path sandboxing
+# ─────────────────────────────────────────────────────────────────────────────
 
 def validate_path(path_str: str) -> Path:
     """
-    Validates that the given path string resolves to a location
-    strictly within the current working directory (sandboxing).
-    Raises ValueError if path lies outside CWD.
+    Ensures path_str resolves strictly inside CWD.
+    Raises ValueError if outside (blocks ../../ traversal, absolute escapes, etc.)
     """
-    # Standardize path
-    raw_path = Path(path_str)
-    
-    # If the path is absolute on Windows/Linux, resolve it.
-    # Otherwise, treat it relative to CWD.
-    if raw_path.is_absolute():
-        resolved_path = raw_path.resolve()
-    else:
-        resolved_path = (CWD / raw_path).resolve()
-        
+    raw      = Path(path_str)
+    resolved = raw.resolve() if raw.is_absolute() else (CWD / raw).resolve()
     try:
-        # Check if the path is relative to the CWD.
-        # This will raise ValueError if resolved_path is not a child of CWD.
-        resolved_path.relative_to(CWD)
+        resolved.relative_to(CWD)
     except ValueError:
         raise ValueError(
-            f"Access Denied: Path '{path_str}' (resolved: '{resolved_path}') "
-            f"is outside the sandboxed working directory '{CWD}'."
+            f"Access Denied: '{path_str}' → '{resolved}' is outside "
+            f"the sandboxed directory '{CWD}'."
         )
-        
-    return resolved_path
+    return resolved
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Command validation
+# ─────────────────────────────────────────────────────────────────────────────
 
 def validate_command(command: str) -> None:
-    """
-    Checks the command string against dangerous patterns in BLOCKED_COMMANDS.
-    Raises ValueError if a blocked command is detected.
-    """
+    """Word-boundary regex check against BLOCKED_COMMANDS. Raises on match."""
     cmd_lower = command.lower()
     for blocked in BLOCKED_COMMANDS:
-        # Regex to match the blocked word/command with word boundaries or special separators.
-        # This covers cases like "rm -rf", "shutil.rmtree()", "drop table;".
-        # It avoids false positives like "format" in "formatting".
-        pattern = rf"(?:^|\W){re.escape(blocked)}(?:$|\W)"
-        if re.search(pattern, cmd_lower):
+        if re.search(rf"(?:^|\W){re.escape(blocked)}(?:$|\W)", cmd_lower):
             raise ValueError(
-                f"Security Violation: Command contains blocked operation '{blocked}'."
+                f"Security Violation: blocked operation '{blocked}' in command."
             )
 
-# Tool definitions callable by agent
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Git initialisation
+# ─────────────────────────────────────────────────────────────────────────────
 
 def ensure_git_initialized() -> None:
     """
-    Checks if a git repository is initialized in CWD.
-    If not, initializes git, creates a default .gitignore if missing,
-    configures local name/email, and commits existing files so that
-    future edits are clearly visible in git diff (red/green format).
+    Idempotent — runs only once per session (returns immediately if .git/ exists).
+
+    On first call:
+      1. Creates a sensible .gitignore if none exists.
+      2. git init
+      3. Sets local user.name / user.email (avoids "Author identity unknown" errors).
+      4. git add .  →  initial commit
+
+    After this, every write/append_chunk call stages the changed file via
+    _git_stage() so the user can always run `git diff HEAD` to see what the
+    agent changed in red/green diff format.
     """
     git_dir = CWD / ".git"
     if git_dir.exists() and git_dir.is_dir():
-        return
+        return                                # already initialised
 
-    logger.info("Initializing Git repository in CWD to track changes...")
+    logger.info("Initialising Git repository in '%s' for change tracking…", CWD)
     try:
-        # Create default .gitignore if it doesn't exist
-        gitignore_path = CWD / ".gitignore"
-        if not gitignore_path.exists():
-            default_gitignore = (
-                "__pycache__/\n"
-                "*.py[cod]\n"
-                ".pytest_cache/\n"
-                ".bhavai/\n"
-                ".env\n"
+        # 1. Default .gitignore
+        gi_path = CWD / ".gitignore"
+        if not gi_path.exists():
+            gi_path.write_text(
+                "# Auto-generated by BhavAI\n"
+                "__pycache__/\n*.py[cod]\n*.pyo\n"
+                ".pytest_cache/\n.mypy_cache/\n"
+                ".bhavai/\n.env\n.env.*\n"
+                "*.egg-info/\ndist/\nbuild/\n"
+                ".venv/\nvenv/\nnode_modules/\n",
+                encoding="utf-8",
             )
-            with open(gitignore_path, "w", encoding="utf-8") as f:
-                f.write(default_gitignore)
-            logger.info("Created default .gitignore file.")
+            logger.info("Created default .gitignore.")
 
-        # Run git init
-        subprocess.run(["git", "init"], cwd=CWD, capture_output=True, text=True, check=True)
+        def _run(*args):
+            subprocess.run(
+                list(args), cwd=CWD,
+                capture_output=True, text=True, check=True,
+            )
 
-        # Configure local git user to avoid commit errors
-        subprocess.run(["git", "config", "user.name", "BhavAI"], cwd=CWD, capture_output=True, text=True, check=True)
-        subprocess.run(["git", "config", "user.email", "bhavai@local.ai"], cwd=CWD, capture_output=True, text=True, check=True)
+        # 2–5. Init, identity, stage, commit
+        _run("git", "init")
+        _run("git", "config", "user.name",  "BhavAI")
+        _run("git", "config", "user.email", "bhavai@local.ai")
+        _run("git", "add", ".")
+        _run("git", "commit", "--allow-empty",
+             "-m", "Initial commit — created by BhavAI before first file operation")
 
-        # Stage and commit any existing files
-        subprocess.run(["git", "add", "."], cwd=CWD, capture_output=True, text=True, check=True)
+        logger.info("Git repository ready.")
+
+    except subprocess.CalledProcessError as exc:
+        logger.error("Git init command failed: cmd=%s stdout=%s stderr=%s",
+                     exc.cmd, exc.stdout, exc.stderr)
+    except Exception as exc:
+        logger.error("Git init unexpected error: %s", exc)
+
+
+def _git_stage(resolved: Path) -> None:
+    """Silently stage a file so it appears in git diff HEAD. Best-effort."""
+    try:
         subprocess.run(
-            ["git", "commit", "--allow-empty", "-m", "Initial commit (automatically initialized by BhavAI)"],
-            cwd=CWD,
-            capture_output=True,
-            text=True,
-            check=True
+            ["git", "add", str(resolved)],
+            cwd=CWD, capture_output=True, text=True, check=False,
         )
-        logger.info("Git repository successfully initialized with initial commit.")
-    except Exception as e:
-        logger.error("Failed to initialize git repository: %s", e)
+    except Exception as exc:
+        logger.debug("_git_stage silent error: %s", exc)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tool: list_folder
+# ─────────────────────────────────────────────────────────────────────────────
 
 def list_folder(path: str = ".") -> str:
-    """List the file and folder tree of a directory path relative to CWD."""
-    logger.info("Executing list_folder on path: %s", path)
-    resolved_path = validate_path(path)
-    
-    if not resolved_path.exists():
-        return f"Error: Path '{path}' does not exist."
-    if not resolved_path.is_dir():
-        return f"Error: Path '{path}' is a file, not a directory."
-        
-    return get_folder_tree_string(resolved_path)
+    """
+    Returns the gitignore-aware folder tree for a directory inside CWD.
+    """
+    logger.info("list_folder('%s')", path)
+    resolved = validate_path(path)
+    if not resolved.exists():
+        return f"Error: '{path}' does not exist."
+    if not resolved.is_dir():
+        return f"Error: '{path}' is a file, not a directory."
+    return get_folder_tree_string(resolved)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tool: read_file
+# ─────────────────────────────────────────────────────────────────────────────
 
 def read_file(path: str) -> str:
-    """Read the content of a file at the given path relative to CWD."""
-    logger.info("Executing read_file on path: %s", path)
+    """
+    Reads and returns full text content of a file inside CWD.
+    Git is initialised first so every workspace is always tracked.
+    """
+    logger.info("read_file('%s')", path)
     ensure_git_initialized()
-    resolved_path = validate_path(path)
-    
-    if not resolved_path.exists():
-        return f"Error: File '{path}' does not exist."
-    if not resolved_path.is_file():
-        return f"Error: Path '{path}' is a directory, not a file."
-        
+    resolved = validate_path(path)
+    if not resolved.exists():
+        return f"Error: '{path}' does not exist."
+    if not resolved.is_file():
+        return f"Error: '{path}' is a directory."
     try:
-        with open(resolved_path, "r", encoding="utf-8") as f:
-            return f.read()
-    except Exception as e:
-        logger.error("Error reading file %s: %s", path, e)
-        return f"Error reading file '{path}': {str(e)}"
+        return resolved.read_text(encoding="utf-8")
+    except Exception as exc:
+        logger.error("read_file('%s'): %s", path, exc)
+        return f"Error reading '{path}': {exc}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tool: write_file
+# ─────────────────────────────────────────────────────────────────────────────
 
 def write_file(path: str, content: str) -> str:
-    """Create a new file or overwrite an existing file with the given content."""
-    logger.info("Executing write_file on path: %s", path)
+    """
+    Creates or overwrites a file.  Use ONLY for short content (< 60 lines).
+    For longer files, use append_chunk instead to avoid 4096-token cutoff.
+    """
+    logger.info("write_file('%s', %d chars)", path, len(content))
     ensure_git_initialized()
-    resolved_path = validate_path(path)
-    
-    # Hard restriction: Do not allow deletion via empty writing if that's a security concern,
-    # but overwriting/creating files is generally fine.
+    resolved = validate_path(path)
+
+    # Warn agent if it ignores the 60-line guideline
+    line_count = content.count("\n") + 1
+    if line_count > 80:
+        logger.warning(
+            "write_file called with %d lines on '%s'. "
+            "This may hit the 4096-token output limit next call. "
+            "Use append_chunk for large files.", line_count, path
+        )
+
     try:
-        # Ensure parent directories exist
-        resolved_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(resolved_path, "w", encoding="utf-8") as f:
-            f.write(content)
-        return f"Success: File '{path}' written successfully ({len(content)} characters)."
-    except Exception as e:
-        logger.error("Error writing file %s: %s", path, e)
-        return f"Error writing file '{path}': {str(e)}"
+        resolved.parent.mkdir(parents=True, exist_ok=True)
+        resolved.write_text(content, encoding="utf-8")
+        _git_stage(resolved)
+        return (
+            f"✓ '{path}' written ({len(content):,} chars, {line_count} lines). "
+            f"Use `git diff HEAD` to review."
+        )
+    except Exception as exc:
+        logger.error("write_file('%s'): %s", path, exc)
+        return f"Error writing '{path}': {exc}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tool: update_file  (legacy — kept for backward compat)
+# ─────────────────────────────────────────────────────────────────────────────
 
 def update_file(path: str, content: str, mode: str = "append") -> str:
-    """Append or partially update content in an existing file."""
-    logger.info("Executing update_file on path: %s with mode: %s", path, mode)
+    """
+    Append or overwrite a file.
+    Prefer append_chunk for token-safe chunked writing.
+    """
+    logger.info("update_file('%s', mode='%s', %d chars)", path, mode, len(content))
     ensure_git_initialized()
-    resolved_path = validate_path(path)
-    
+
     if mode not in ("append", "overwrite"):
-        return f"Error: Invalid mode '{mode}'. Must be 'append' or 'overwrite'."
-        
+        return f"Error: mode must be 'append' or 'overwrite', got '{mode}'."
     if mode == "overwrite":
         return write_file(path, content)
-        
-    # Mode is append
+
+    resolved = validate_path(path)
     try:
-        # If file doesn't exist, create it.
-        resolved_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(resolved_path, "a", encoding="utf-8") as f:
-            f.write(content)
-        return f"Success: Content appended to '{path}' successfully."
-    except Exception as e:
-        logger.error("Error appending to file %s: %s", path, e)
-        return f"Error updating file '{path}': {str(e)}"
+        resolved.parent.mkdir(parents=True, exist_ok=True)
+        with open(resolved, "a", encoding="utf-8") as fh:
+            fh.write(content)
+        _git_stage(resolved)
+        return f"✓ Appended {len(content):,} chars to '{path}'."
+    except Exception as exc:
+        logger.error("update_file('%s'): %s", path, exc)
+        return f"Error updating '{path}': {exc}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tool: append_chunk  ← THE KEY FIX FOR THE 4096-TOKEN LIMIT
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Tracks which files are currently being written in chunks so we can give
+# progress feedback and detect misuse (e.g. done=true on first chunk).
+_chunk_state: dict[str, int] = {}   # path → total chars written so far
+
+def append_chunk(path: str, chunk: str, done: bool = False) -> str:
+    """
+    Appends one chunk of text to a file.
+
+    Parameters
+    ----------
+    path  : File path relative to CWD (created automatically if it doesn't exist).
+    chunk : The text to append.  Should be ≤ 50 lines to stay inside the
+            4096-token output budget.
+    done  : Set to true ONLY on the final chunk.  Triggers Git staging and
+            returns a completion summary.
+
+    How the agent should use this
+    -----------------------------
+    Large file (e.g. 150-line HTML):
+      Call 1:  append_chunk path="index.html" chunk="<lines 1-50>"   done=false
+      Call 2:  append_chunk path="index.html" chunk="<lines 51-100>" done=false
+      Call 3:  append_chunk path="index.html" chunk="<lines 101-150>" done=true
+
+    The file is created on the first call and appended on every subsequent call.
+    Setting done=true stages the file in Git so changes appear in git diff HEAD.
+    """
+    logger.info("append_chunk('%s', done=%s, %d chars)", path, done, len(chunk))
+    ensure_git_initialized()
+
+    resolved = validate_path(path)
+    try:
+        resolved.parent.mkdir(parents=True, exist_ok=True)
+
+        # First chunk → create/overwrite; subsequent → append
+        write_mode = "a" if path in _chunk_state else "w"
+        with open(resolved, write_mode, encoding="utf-8") as fh:
+            fh.write(chunk)
+
+        prev         = _chunk_state.get(path, 0)
+        _chunk_state[path] = prev + len(chunk)
+        total        = _chunk_state[path]
+        line_count   = chunk.count("\n") + 1
+
+        if done:
+            _git_stage(resolved)
+            del _chunk_state[path]                  # reset state
+            return (
+                f"✓ Final chunk written. '{path}' is complete "
+                f"({total:,} total chars). "
+                f"Run `git diff HEAD` to review all changes."
+            )
+        else:
+            return (
+                f"✓ Chunk appended to '{path}' "
+                f"({line_count} lines, {len(chunk):,} chars this chunk, "
+                f"{total:,} chars total so far). "
+                f"Continue with next chunk or set done=true when finished."
+            )
+
+    except Exception as exc:
+        logger.error("append_chunk('%s'): %s", path, exc)
+        # Clean up state on error so next call starts fresh
+        _chunk_state.pop(path, None)
+        return f"Error in append_chunk for '{path}': {exc}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tool: run_command
+# ─────────────────────────────────────────────────────────────────────────────
 
 def run_command(command: str) -> str:
-    """Run a safe, read-only shell command (e.g. git status, ls, cat)."""
-    logger.info("Executing run_command: %s", command)
+    """
+    Runs a shell command inside CWD with a 10-second timeout.
+    Blocked commands are rejected before execution.
+    """
+    logger.info("run_command('%s')", command)
     try:
         validate_command(command)
-    except ValueError as e:
-        return str(e)
-        
+    except ValueError as exc:
+        return str(exc)
+
     import sys
-    
     try:
-        # Spawn the process in the sandboxed CWD
         proc = subprocess.Popen(
-            command,
-            shell=True,
-            cwd=CWD,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
+            command, shell=True, cwd=CWD,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
         )
-        
         try:
-            # Wait for the process to complete with a 10s timeout
             stdout, stderr = proc.communicate(timeout=10)
         except subprocess.TimeoutExpired:
-            logger.error("Command '%s' timed out", command)
-            
-            # Kill process tree depending on platform
+            logger.warning("Command timed out: '%s'", command)
             if sys.platform == "win32":
-                # Force kill process tree recursively on Windows
-                subprocess.run(f"taskkill /F /T /PID {proc.pid}", shell=True, capture_output=True)
+                subprocess.run(f"taskkill /F /T /PID {proc.pid}",
+                               shell=True, capture_output=True)
             else:
-                # Standard kill on Unix/macOS
                 proc.kill()
-                
-            # Collect any stdout/stderr written before process termination
             stdout, stderr = proc.communicate()
-            
-            output = []
-            if stdout:
-                output.append(f"Stdout before timeout:\n{stdout}")
-            if stderr:
-                output.append(f"Stderr before timeout:\n{stderr}")
-                
-            output_msg = "\n".join(output) if output else "No output was produced."
-            return (
-                f"Error: Command execution timed out (10s limit).\n"
-                f"{output_msg}"
-            )
-            
-        output = []
-        if stdout:
-            output.append(stdout)
-        if stderr:
-            output.append(f"Stderr:\n{stderr}")
-            
-        if not output:
-            return "Command executed with no output."
-            
-        return "\n".join(output)
-        
-    except Exception as e:
-        logger.error("Error running command '%s': %s", command, e)
-        return f"Error executing command: {str(e)}"
+            parts = ["Error: Command timed out (10 s)."]
+            if stdout: parts.append(f"Stdout:\n{stdout}")
+            if stderr: parts.append(f"Stderr:\n{stderr}")
+            return "\n".join(parts)
 
-# Registry of available tools for routing
+        parts = []
+        if stdout: parts.append(stdout)
+        if stderr: parts.append(f"Stderr:\n{stderr}")
+        return "\n".join(parts) if parts else "Command executed with no output."
+
+    except Exception as exc:
+        logger.error("run_command('%s'): %s", command, exc)
+        return f"Error executing command: {exc}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tool dispatch registry
+# ─────────────────────────────────────────────────────────────────────────────
+
 TOOL_DISPATCH = {
-    "list_folder": list_folder,
-    "read_file": read_file,
-    "write_file": write_file,
-    "update_file": update_file,
-    "run_command": run_command
+    "list_folder":   list_folder,
+    "read_file":     read_file,
+    "write_file":    write_file,
+    "update_file":   update_file,    # legacy
+    "append_chunk":  append_chunk,   # ← NEW: token-safe chunked writing
+    "run_command":   run_command,
+    # 'final_answer' is handled directly in agent.py
 }

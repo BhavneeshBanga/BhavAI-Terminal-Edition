@@ -22,7 +22,8 @@ def query_llm(messages: list, temperature: float = 0.0) -> str:
     payload = {
         "model": SARVAM_MODEL,
         "messages": messages,
-        "temperature": temperature
+        "temperature": temperature,
+        "max_tokens": 4096
     }
     
     max_retries = 3

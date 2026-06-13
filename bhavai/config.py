@@ -20,6 +20,8 @@ LOG_DIR = Path.home() / ".bhavai" / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 LOG_FILE = LOG_DIR / "bhavai.log"
 
+
+
 # Setup logging
 logging.basicConfig(
     level=logging.DEBUG,

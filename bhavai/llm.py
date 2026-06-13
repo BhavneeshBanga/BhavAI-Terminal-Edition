@@ -30,6 +30,7 @@ def query_llm(messages: list, temperature: float = 0.0) -> str:
     #     "Content-Type": "application/json",
     # }
 
+
     headers = {
         "Authorization": f"Bearer {SARVAM_API_KEY}",
         "Content-Type": "application/json",

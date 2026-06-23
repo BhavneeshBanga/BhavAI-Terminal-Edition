@@ -3,24 +3,24 @@ agent.py — BhavAI Core ReAct Loop
 
 Architecture for 4096-token LLM output limit
 =============================================
-The Sarvam-105B model has a hard 4096-token (~3000 word) output limit.
-When the agent tries to write a large file in one shot, the JSON response
-gets cut off mid-string → JSONDecodeError: Unterminated string.
-
-This file implements a 4-layer defence:
+The Sarvam-105B model has a hard 4096-token output limit.
+This file implements a 5-layer defence (was 4 in v1):
 
   Layer 1 — System prompt teaches the model to CHUNK large writes
-             (never write more than 60 lines per tool call).
-             The model itself avoids the problem.
+             (never write more than 50 lines per tool call).
 
-  Layer 2 — write_file / append_chunk tools in tools.py enforce chunked
-             writing. A new `append_chunk` tool is purpose-built for this.
+  Layer 2 — write_file / append_chunk tools enforce chunked writing.
 
-  Layer 3 — JSON repair pipeline (_fix_truncated_json) stitches together
-             cut-off responses so a single bad step doesn't abort the task.
+  Layer 3 — query_llm_with_continuation() in llm.py automatically
+             stitches together responses that hit max_tokens.
+             THIS IS THE NEW LAYER — directly answers the question:
+             "agar 4096 cross kare toh dubara call lagao aur append karo"
 
-  Layer 4 — The recovery feedback message tells the model EXACTLY what
-             went wrong and how to fix it before the next attempt.
+  Layer 4 — JSON repair pipeline (_fix_truncated_json) handles any
+             remaining partial JSON after continuation.
+
+  Layer 5 — Recovery feedback message tells the model exactly what went
+             wrong and how to fix it before the next attempt.
 """
 
 import json
@@ -29,12 +29,12 @@ from rich.console import Console
 from rich.panel import Panel
 from bhavai.config import CWD, logger
 from bhavai.context import get_folder_tree_string
-from bhavai.llm import query_llm
+from bhavai.llm import query_llm_with_continuation   # ← NEW: use continuation
 from bhavai.memory import ConversationMemory
 from bhavai.tools import TOOL_DISPATCH
 
 # ─────────────────────────────────────────────────────────────────────────────
-# System Prompt  (token-budget-aware instructions baked in)
+# System Prompt
 # ─────────────────────────────────────────────────────────────────────────────
 
 SYSTEM_PROMPT_TEMPLATE = """You are BhavAI, a personal AI agent running inside the terminal.
@@ -67,7 +67,7 @@ STRICT RULES  (never break these)
 4. Work step-by-step; show reasoning in "thought".
 5. Call final_answer when done.
 6. NEVER attempt to read .env, .env.local, .env.example, .env.*, credentials.json or any
-   secrets file. These are permanently blocked. If you need config info, ask the user instead.
+   secrets file. These are permanently blocked.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ⚠  OUTPUT TOKEN BUDGET — READ CAREFULLY
@@ -80,11 +80,9 @@ GOLDEN RULE → MAXIMUM 50 LINES OF CODE PER TOOL CALL.
 
 For ANY file longer than 50 lines you MUST use append_chunk like this:
 
-  Step 1:  append_chunk  path="app.py"  chunk="<lines 1-50>"   done=false
-  Step 2:  append_chunk  path="app.py"  chunk="<lines 51-100>" done=false
+  Step 1:  append_chunk  path="app.py"  chunk="<lines 1-50>"    done=false
+  Step 2:  append_chunk  path="app.py"  chunk="<lines 51-100>"  done=false
   Step 3:  append_chunk  path="app.py"  chunk="<lines 101-120>" done=true
-
-Never try to write an entire HTML/CSS/JS file in one call — it WILL be cut off.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RESPONSE FORMAT  (raw JSON only — no markdown fences, no extra text)
@@ -100,22 +98,20 @@ RESPONSE FORMAT  (raw JSON only — no markdown fences, no extra text)
 Inside JSON strings:  newline → \\n   quote → \\"   backslash → \\\\
 """
 
+
 # ─────────────────────────────────────────────────────────────────────────────
-# JSON Cleaning Pipeline
+# JSON Cleaning Pipeline (unchanged from v1 — still needed as safety net)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _extract_json_block(text: str) -> str:
     """Strip <think> tags, markdown fences, and pull the outermost { … }."""
-    # 1. Remove chain-of-thought tags (DeepSeek / some Sarvam variants emit these)
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE).strip()
 
-    # 2. Strip ```json … ``` fences
     if "```" in text:
         m = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", text)
         if m:
             text = m.group(1).strip()
 
-    # 3. Pull outermost { … }
     start = text.find("{")
     end   = text.rfind("}")
     if start != -1 and end != -1 and end > start:
@@ -126,10 +122,8 @@ def _extract_json_block(text: str) -> str:
 
 def _escape_control_chars(text: str) -> str:
     """
-    Walk the raw JSON text character-by-character.
-    Inside string literals convert bare control chars to escape sequences
-    so json.loads won't choke on literal newlines inside strings.
-    Already-valid escape sequences (\\n written by the model) are left alone.
+    Walk raw JSON text character-by-character.
+    Inside string literals convert bare control chars to escape sequences.
     """
     result    = []
     in_string = False
@@ -140,14 +134,14 @@ def _escape_control_chars(text: str) -> str:
         ch = text[i]
 
         if in_string:
-            if ch == "\\":                    # start of an escape sequence
+            if ch == "\\":
                 result.append(ch)
                 i += 1
                 if i < n:
-                    result.append(text[i])    # escaped char — keep as-is
+                    result.append(text[i])
                     i += 1
                 continue
-            elif ch == '"':                   # closing quote
+            elif ch == '"':
                 in_string = False
                 result.append(ch)
             elif ch == "\n":
@@ -174,26 +168,17 @@ def _escape_control_chars(text: str) -> str:
 
 def _fix_truncated_json(text: str) -> str:
     """
-    *** The core fix for the 4096-token cutoff bug ***
-
-    When the LLM response is cut off mid-string the JSON is syntactically
-    broken.  This function:
-      1. Tries json.loads — if OK, returns immediately.
-      2. On 'Unterminated string' error, walks the text tracking string/brace
-         depth, closes the open string with '"', closes open brackets/braces.
-      3. Returns repaired (truncated but parseable) JSON.
-
-    The agent loop then feeds a clear recovery message back to the LLM so
-    it knows to redo the step with smaller chunks.
+    Attempt to repair JSON that was cut off mid-string.
+    Tries json.loads first; on 'Unterminated string' walks the text to close
+    open strings/braces/brackets.
     """
     try:
         json.loads(text)
-        return text                          # already valid
+        return text
     except json.JSONDecodeError as e:
         if "Unterminated string" not in str(e):
-            return text                      # different error — don't modify
+            return text
 
-    # Walk to find unclosed string / open braces
     depth_braces   = 0
     depth_brackets = 0
     in_string      = False
@@ -206,30 +191,39 @@ def _fix_truncated_json(text: str) -> str:
             if ch == "\\" and i + 1 < n:
                 i += 2
                 continue
-            elif ch == '"':
+            if ch == '"':
                 in_string = False
         else:
-            if   ch == '"': in_string      = True
-            elif ch == "{": depth_braces   += 1
-            elif ch == "}": depth_braces   -= 1
-            elif ch == "[": depth_brackets += 1
-            elif ch == "]": depth_brackets -= 1
+            if ch == '"':
+                in_string = True
+            elif ch == '{':
+                depth_braces += 1
+            elif ch == '}':
+                depth_braces -= 1
+            elif ch == '[':
+                depth_brackets += 1
+            elif ch == ']':
+                depth_brackets -= 1
         i += 1
 
-    repair = text.rstrip("\\")              # trailing backslash would break \"
+    suffix = []
     if in_string:
-        repair += '"'                        # close the open string
-    repair += "]" * max(0, depth_brackets)
-    repair += "}" * max(0, depth_braces)
+        suffix.append('"')
+    suffix.extend(']' * depth_brackets)
+    suffix.extend('}' * depth_braces)
 
-    logger.warning("Repaired truncated JSON (closed %d brace(s), in_string=%s)",
-                   depth_braces, in_string)
-    return repair
+    repaired = text + "".join(suffix)
+    try:
+        json.loads(repaired)
+        logger.info("_fix_truncated_json: successfully repaired truncated JSON.")
+        return repaired
+    except json.JSONDecodeError:
+        return text
 
 
-def clean_json_text(text: str) -> str:
-    """Full cleaning pipeline: extract → escape → repair."""
-    text = _extract_json_block(text)
+def clean_json_text(raw_text: str) -> str:
+    """Full pipeline: extract → escape → attempt repair."""
+    text = _extract_json_block(raw_text)
     text = _escape_control_chars(text)
     text = _fix_truncated_json(text)
     return text
@@ -237,7 +231,7 @@ def clean_json_text(text: str) -> str:
 
 def parse_llm_json(raw_text: str) -> dict:
     """
-    Clean and parse LLM output.
+    Parses LLM output into a dict.
     Raises ValueError with an actionable message on failure.
     """
     cleaned = clean_json_text(raw_text)
@@ -281,24 +275,23 @@ def run_agent_loop(
     memory:       ConversationMemory,
     current_mode: str,
     plan_steps:   list = None,
-    max_steps:    int  = 30,           # bumped up — chunked writes use more steps
+    max_steps:    int  = 30,
     console:      Console = None,
 ) -> str:
     """
     Executes the ReAct (Reason → Act → Observe) loop.
 
-    Each iteration:
-      1. Builds the system prompt with a fresh folder tree.
-      2. Calls the LLM.
-      3. Parses the JSON response (with repair if truncated).
-      4. Runs the requested tool.
-      5. Feeds the observation back into memory.
-      6. Repeats until final_answer or max_steps.
+    Key change from v1
+    ------------------
+    Uses query_llm_with_continuation() instead of query_llm().
+    If the LLM hits the 4096-token wall mid-response, the continuation
+    loop in llm.py automatically fetches the rest and stitches it together
+    BEFORE we attempt JSON parsing. This means the JSON repair pipeline
+    (Layer 4) now only needs to handle edge cases, not the common case.
     """
     if console is None:
         console = Console()
 
-    # ── Build initial task message ──────────────────────────────────────── #
     task_prompt = user_input
     if plan_steps:
         steps_str   = "\n".join(f"  {i+1}. {s}" for i, s in enumerate(plan_steps))
@@ -317,36 +310,33 @@ def run_agent_loop(
         step_count += 1
         logger.info("ReAct step %d/%d", step_count, max_steps)
 
-        # ── Build system prompt ─────────────────────────────────────────── #
         folder_tree   = get_folder_tree_string(CWD)
         system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
             cwd=str(CWD),
             folder_tree=folder_tree,
         )
 
-        # ── Query LLM ──────────────────────────────────────────────────── #
-        raw_response = ""   # initialise so it is always bound even if query fails
+        raw_response = ""
         with console.status("[bold blue]Thinking…[/bold blue]", spinner="dots"):
             try:
                 messages     = memory.get_messages(system_prompt)
-                raw_response = query_llm(messages)
+                # ── KEY CHANGE: continuation instead of single-shot ──────── #
+                raw_response = query_llm_with_continuation(messages)
             except Exception as exc:
                 err = f"LLM Error: {exc}"
                 console.print(f"[bold red]{err}[/bold red]")
                 logger.error(err)
                 return err
 
-        # Guard: query_llm returned empty string (should not happen, but be safe)
         if not raw_response:
             err = "LLM returned an empty response. Please try again."
             console.print(f"[bold red]{err}[/bold red]")
             logger.error(err)
             return err
 
-        # ── Parse JSON ─────────────────────────────────────────────────── #
         try:
-            parsed= parse_llm_json(raw_response)
-            consecutive_json_errs = 0          # reset on success
+            parsed = parse_llm_json(raw_response)
+            consecutive_json_errs = 0
         except ValueError as exc:
             consecutive_json_errs += 1
             explanation = str(exc)
@@ -362,7 +352,6 @@ def run_agent_loop(
                 console.print(f"[bold red]{msg}[/bold red]")
                 return msg
 
-            # Tell the LLM exactly what went wrong and how to fix it
             memory.add_message("assistant", raw_response)
             memory.add_message(
                 "user",
@@ -378,7 +367,6 @@ def run_agent_loop(
             )
             continue
 
-        # ── Extract fields ─────────────────────────────────────────────── #
         thought   = parsed.get("thought", "")
         tool_name = parsed.get("tool_name", "")
         tool_args = parsed.get("tool_args", {})
@@ -398,7 +386,6 @@ def run_agent_loop(
                 "Please include it in your next response.")
             continue
 
-        # ── final_answer ───────────────────────────────────────────────── #
         if tool_name == "final_answer":
             answer = tool_args.get("answer", "Task complete.")
             console.print("\n[bold green]✅ BhavAI Final Answer:[/bold green]")
@@ -407,9 +394,8 @@ def run_agent_loop(
             memory.add_message("assistant", raw_response)
             return answer
 
-        # ── Execute tool ───────────────────────────────────────────────── #
         if tool_name in TOOL_DISPATCH:
-            tool_func   = TOOL_DISPATCH[tool_name]
+            tool_func    = TOOL_DISPATCH[tool_name]
             args_display = _fmt_args(tool_args)
             with console.status(
                 f"[bold blue][TOOL][/bold blue] "

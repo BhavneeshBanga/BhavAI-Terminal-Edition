@@ -1,43 +1,45 @@
+"""
+llm.py — Sarvam API client with continuation support
+
+Key improvements over v1
+------------------------
+1. Debug print statements REMOVED (were leaking API key hints to stdout).
+2. query_llm_with_continuation() — checks stop_reason and automatically
+   makes follow-up calls when the model hits the max_tokens wall.
+   This is the direct answer to your original question:
+     "agar text 4096 cross kare toh dubara call lagao aur append karo"
+3. query_llm() is kept as a single-shot wrapper (used by modes.py for
+   short plan generation where truncation is not expected).
+"""
+
 import time
 import httpx
 from bhavai.config import SARVAM_API_KEY, SARVAM_BASE_URL, SARVAM_MODEL, logger
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Internal: single API call, returns (content, stop_reason)
+# ─────────────────────────────────────────────────────────────────────────────
 
-print("KEY in llm.py:", repr(SARVAM_API_KEY))
-print("KEY in working file:", repr(SARVAM_API_KEY))  # jahan SarvamAI() wala code hai
-print("KEY:", repr(SARVAM_API_KEY))
-print("BASE URL:", SARVAM_BASE_URL)
-print("MODEL:", SARVAM_MODEL)
-
-def query_llm(messages: list, temperature: float = 0.0) -> str:
+def _call_api(messages: list, temperature: float = 0.0) -> tuple[str, str]:
     """
-    Queries the Sarvam-105B API via the OpenAI-compatible chat completions endpoint.
+    Makes one call to the Sarvam chat completions endpoint.
 
-    Retry behaviour
-    ---------------
-    • 429 / 5xx  → exponential backoff (2 s, 4 s, 8 s) then retry
-    • Network errors (httpx.RequestError) → same backoff, raise on final attempt
-    • Any other non-200 status → raise immediately (non-retryable)
+    Returns
+    -------
+    (content, stop_reason)
+        stop_reason is "end_turn" when the model finished naturally,
+        or "max_tokens" when it hit the 4096-token limit mid-response.
 
-    Always raises RuntimeError on total failure so the caller (agent.py) can
-    catch it cleanly and assign raw_response before referencing it.
+    Raises RuntimeError on all non-recoverable errors (caller handles retry).
     """
     if not SARVAM_API_KEY:
-        print("sarvam apikey", SARVAM_API_KEY)
         raise ValueError(
             "SARVAM_API_KEY is not set. "
             "Please add it to your .env file or environment variables."
         )
 
     url = f"{SARVAM_BASE_URL.rstrip('/')}/chat/completions"
-
-    # headers = {
-    #     "api-subscription-key": SARVAM_API_KEY,
-    #     "Content-Type": "application/json",
-    # }
-
-    # SARVAM_API_KEY="sk_3l1l10z7_H4GsKJZFxUY3bhMTOY8SMe7B"
     headers = {
         "api-subscription-key": SARVAM_API_KEY,
         "Content-Type": "application/json",
@@ -51,7 +53,7 @@ def query_llm(messages: list, temperature: float = 0.0) -> str:
 
     max_retries = 3
     delay       = 2.0
-    last_error  = None          # track last exception for the final raise
+    last_error  = None
 
     for attempt in range(1, max_retries + 1):
         logger.debug(
@@ -65,15 +67,16 @@ def query_llm(messages: list, temperature: float = 0.0) -> str:
 
             status = response.status_code
 
-            # ── Success ───────────────────────────────────────────────────── #
             if status == 200:
                 data = response.json()
                 try:
-                    content = data["choices"][0]["message"]["content"]
+                    choice      = data["choices"][0]
+                    content     = choice["message"]["content"]
+                    # Sarvam follows OpenAI spec: finish_reason field
+                    stop_reason = choice.get("finish_reason", "end_turn") or "end_turn"
                 except (KeyError, IndexError, TypeError) as exc:
-                    # Malformed success response — treat as non-retryable
                     raise RuntimeError(
-                        f"Sarvam API returned 200 but response structure is unexpected: "
+                        f"Sarvam API returned 200 but structure is unexpected: "
                         f"{exc}. Raw: {str(data)[:300]}"
                     )
 
@@ -82,10 +85,12 @@ def query_llm(messages: list, temperature: float = 0.0) -> str:
                         "Sarvam API returned 200 but 'content' is empty or not a string."
                     )
 
-                logger.debug("Sarvam API success on attempt %d.", attempt)
-                return content
+                logger.debug(
+                    "Sarvam API success on attempt %d. stop_reason=%s",
+                    attempt, stop_reason,
+                )
+                return content, stop_reason
 
-            # ── Transient error — retry ───────────────────────────────────── #
             elif status in (429, 500, 502, 503, 504):
                 logger.warning(
                     "Sarvam API transient %d on attempt %d/%d — retrying in %.1f s…",
@@ -96,9 +101,8 @@ def query_llm(messages: list, temperature: float = 0.0) -> str:
                 )
                 time.sleep(delay)
                 delay *= 2.0
-                continue            # explicit continue for clarity
+                continue
 
-            # ── Non-retryable error ───────────────────────────────────────── #
             else:
                 raise RuntimeError(
                     f"Sarvam API non-retryable error {status}: {response.text[:300]}"
@@ -109,9 +113,7 @@ def query_llm(messages: list, temperature: float = 0.0) -> str:
                 "Sarvam API network error on attempt %d/%d: %s",
                 attempt, max_retries, exc,
             )
-            last_error = RuntimeError(
-                f"Sarvam API network error: {exc}"
-            )
+            last_error = RuntimeError(f"Sarvam API network error: {exc}")
             if attempt == max_retries:
                 break
             time.sleep(delay)
@@ -119,181 +121,120 @@ def query_llm(messages: list, temperature: float = 0.0) -> str:
             continue
 
         except RuntimeError:
-            raise   # re-raise without wrapping (already descriptive)
+            raise
 
         except Exception as exc:
-            # Unexpected error — wrap and raise immediately
             raise RuntimeError(f"Unexpected error querying Sarvam API: {exc}") from exc
 
-    # All retries exhausted
     raise last_error or RuntimeError(
         f"Sarvam API failed after {max_retries} attempts with no response."
     )
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Public: single-shot (for short outputs like plan generation)
+# ─────────────────────────────────────────────────────────────────────────────
 
-# exit()
+def query_llm(messages: list, temperature: float = 0.0) -> str:
+    """
+    Single-shot LLM call. Returns the content string.
+    Used by modes.py (plan generation) where the output is short and
+    truncation is extremely unlikely.
 
-
-# from dotenv import load_dotenv
-# import httpx
-# import os
-
-# # Load .env file from current working directory or fallback to system environment variables
-# load_dotenv()
-
-# # Configuration Settings
-# # SARVAM_API_KEY = os.getenv("SARVAM_API_KEY")
-
-
-
-# import time
-# from sarvamai import SarvamAI
-
-# from bhavai.config import SARVAM_API_KEY, SARVAM_MODEL, logger
-
-# client = SarvamAI(
-#     api_subscription_key=os.getenv("SARVAM_API_KEY")
-# )
-
-# def query_llm(messages: list, temperature: float = 0.0) -> str:
-#     """
-#     Query Sarvam LLM using official SDK.
-#     """
-
-#     if not SARVAM_API_KEY:
-#         raise ValueError(
-#             "SARVAM_API_KEY is not set. "
-#             "Please add it to your .env file or environment variables."
-#         )
-
-#     max_retries = 3
-#     delay = 2.0
-#     last_error = None
-
-#     for attempt in range(1, max_retries + 1):
-
-#         try:
-#             logger.debug(
-#                 "Sarvam SDK request — attempt %d/%d model=%s",
-#                 attempt,
-#                 max_retries,
-#                 SARVAM_MODEL,
-#             )
-
-#             response = client.chat.completions(
-#                 model="sarvam-105b",
-#                 messages=messages,
-#                 temperature=temperature,
-#                 max_tokens=4096,
-#             )
-
-#             content = response.choices[0].message.content
-
-#             if not content or not isinstance(content, str):
-#                 raise RuntimeError("Empty response from Sarvam.")
-
-#             return content
-
-#         except Exception as exc:
-#             last_error = exc
-
-#             logger.warning(
-#                 "Sarvam request failed on attempt %d/%d: %s",
-#                 attempt,
-#                 max_retries,
-#                 exc,
-#             )
-
-#             if attempt < max_retries:
-#                 time.sleep(delay)
-#                 delay *= 2
-
-#     raise RuntimeError(
-#         f"Sarvam API failed after {max_retries} attempts. Last error: {last_error}"
-#     )
+    For the ReAct agent loop use query_llm_with_continuation() instead.
+    """
+    content, _ = _call_api(messages, temperature)
+    return content
 
 
-# from dotenv import load_dotenv
-# import os
-# import time
-# from pathlib import Path
-# from sarvamai import SarvamAI
+# ─────────────────────────────────────────────────────────────────────────────
+# Public: continuation loop (for agent tasks that may exceed 4096 tokens)
+# ─────────────────────────────────────────────────────────────────────────────
 
-# # Load environment variables
-# # load_dotenv()
-# load_dotenv(Path(__file__).parent.parent / ".env")
+def query_llm_with_continuation(
+    messages:      list,
+    temperature:   float = 0.0,
+    max_rounds:    int   = 6,
+) -> str:
+    """
+    Calls the LLM and, if stop_reason == "max_tokens", automatically makes
+    additional calls with a continuation prompt until the model signals it is
+    done (stop_reason == "end_turn") or max_rounds is reached.
 
-# # Load config safely
-# SARVAM_API_KEY = os.getenv("SARVAM_API_KEY")
-# SARVAM_MODEL = os.getenv("SARVAM_MODEL", "sarvam-105b")
+    This directly solves the problem you described:
+      "agar text 4096 cross kare toh dubara call lagao aur append karo"
 
-# # Optional: fallback logger (in case your import fails)
-# try:
-#     from bhavai.config import logger
-# except:
-#     import logging
-#     logging.basicConfig(level=logging.INFO)
-#     logger = logging.getLogger(__name__)
+    Parameters
+    ----------
+    messages    : Full conversation history (system + user/assistant turns).
+    temperature : Sampling temperature (default 0.0 for deterministic JSON).
+    max_rounds  : Safety cap — prevents infinite loops if the model keeps
+                  hitting the token limit (default 6 = up to 6 × 4096 tokens).
 
-# # Initialize client
-# if not SARVAM_API_KEY:
-#     raise ValueError("SARVAM_API_KEY is missing in environment variables")
+    Returns
+    -------
+    Concatenated content from all rounds as a single string.
 
-# client = SarvamAI(
-#     api_subscription_key=SARVAM_API_KEY
-# )
+    How it works
+    ------------
+    Round 1:  call API  →  content_1, stop_reason_1
+    If stop_reason_1 == "end_turn":  return content_1
+    If stop_reason_1 == "max_tokens":
+        append {"role": "assistant", "content": content_1} to message history
+        append {"role": "user",      "content": CONTINUATION_PROMPT}
+        Round 2:  call API  →  content_2, stop_reason_2
+        full_output = content_1 + content_2
+        ... repeat until end_turn or max_rounds
 
-# def query_llm(messages: list, temperature: float = 0.0) -> str:
-#     """
-#     Query Sarvam LLM using official SDK with retries.
-#     """
+    Note on JSON
+    ------------
+    For structured JSON responses (agent tool calls), the agent's system prompt
+    already instructs the model to use append_chunk (≤50 lines per call) so
+    that each individual LLM response stays well under 4096 tokens.
+    query_llm_with_continuation is used as an ADDITIONAL safety net — if the
+    model still emits a very long response (e.g. a long "thought" section),
+    this function stitches the pieces together before JSON parsing.
+    """
+    CONTINUATION_PROMPT = (
+        "Continue exactly from where you left off. "
+        "Do NOT repeat any content already written. "
+        "Resume mid-word or mid-token if needed. "
+        "Output only the continuation, nothing else."
+    )
 
-#     max_retries = 3
-#     delay = 2.0
-#     last_error = None
+    full_output  = ""
+    history      = list(messages)   # shallow copy — don't mutate caller's list
 
-#     for attempt in range(1, max_retries + 1):
-#         try:
-#             logger.debug(
-#                 "Sarvam SDK request — attempt %d/%d model=%s",
-#                 attempt,
-#                 max_retries,
-#                 SARVAM_MODEL,
-#             )
+    for round_num in range(1, max_rounds + 1):
+        logger.debug(
+            "query_llm_with_continuation: round %d/%d", round_num, max_rounds
+        )
 
-#             response = client.chat.completions(
-#                 model=SARVAM_MODEL,
-#                 messages=messages,
-#                 temperature=temperature,
-#                 max_tokens=4096,
-#             )
+        content, stop_reason = _call_api(history, temperature)
+        full_output += content
 
-#             # ✅ safer extraction
-#             if not response or not response.choices:
-#                 raise RuntimeError("Invalid response structure from Sarvam")
+        if stop_reason != "max_tokens":
+            # Model finished naturally
+            logger.debug(
+                "Continuation complete after %d round(s). stop_reason=%s",
+                round_num, stop_reason,
+            )
+            break
 
-#             content = response.choices[0].message.content
+        # Model hit the token limit — prepare the next round
+        logger.info(
+            "LLM hit max_tokens on round %d — continuing (total chars so far: %d)…",
+            round_num, len(full_output),
+        )
+        history.append({"role": "assistant", "content": content})
+        history.append({"role": "user",      "content": CONTINUATION_PROMPT})
 
-#             if not content or not isinstance(content, str):
-#                 raise RuntimeError("Empty response from Sarvam.")
+    else:
+        # Exited loop by hitting max_rounds without an end_turn
+        logger.warning(
+            "query_llm_with_continuation hit max_rounds=%d limit. "
+            "Output may be incomplete (%d total chars).",
+            max_rounds, len(full_output),
+        )
 
-#             return content.strip()
-
-#         except Exception as exc:
-#             last_error = exc
-
-#             logger.warning(
-#                 "Sarvam request failed on attempt %d/%d: %s",
-#                 attempt,
-#                 max_retries,
-#                 str(exc),
-#             )
-
-#             if attempt < max_retries:
-#                 time.sleep(delay)
-#                 delay *= 2  # exponential backoff
-
-#     raise RuntimeError(
-#         f"Sarvam API failed after {max_retries} attempts. Last error: {last_error}"
-#     )
+    return full_output

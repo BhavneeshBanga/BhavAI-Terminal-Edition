@@ -22,7 +22,9 @@ class ConversationMemory:
         self.messages.clear()
 
     def save_to_file(self, path) -> None:
-        """Dumps the full conversation history as readable markdown."""
+        """
+        Saves the full conversation history as readable markdown.
+        """
         lines = []
         for msg in self.messages:
             lines.append(f"### {msg['role'].upper()}\n\n{msg['content']}\n")

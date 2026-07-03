@@ -22,6 +22,9 @@ from bhavai.modes import AgentMode, prompt_and_confirm_plan
 from bhavai.agent import run_agent_loop
 
 import getpass
+import time
+
+SESSION_NAME = "NEW_CHAT_" + str(int(time.time()))
 
 
 console = Console()
@@ -138,6 +141,45 @@ def wake(action):
             if not user_input:
                 continue
 
+            
+
+            # from textual.widgets import Header, Footer, Input, RichLog
+            # log = query_one("#log", RichLog)
+            low = user_input.lower()
+
+
+            ## To rename the session
+            if user_input.startswith("/rename"):
+                conversation_name = user_input.replace("/rename", "")
+                SESSION_NAME = conversation_name + str(int(time.time()))
+                console.print(f"Conversation renamed to {conversation_name}")
+                continue
+                # print((result[1:]))
+
+
+            if low == "/save":
+                save_path = CWD / f"{SESSION_NAME}.md"
+                try:
+                    # self.memory.save_to_file(save_path)
+                    memory.save_to_file(save_path)
+                    # log.write(f"[green]✓ Conversation saved to {save_path}[/green]")
+                    print(f"[green]✓ Conversation saved to {save_path}[/green]")
+                except Exception as e:
+                    # log.write(f"[red]Failed to save conversation: {e}[/red]")
+                    print(f"[red]Failed to save conversation: {e}[/red]")
+                return
+            
+            # if low == "/init":
+            #     log.write("[cyan]Generating BHAVAI.md...[/cyan]")
+
+            #     try:
+            #         path = await asyncio.to_thread(generate_bhavai_md, CWD)
+            #         log.write(f"[green]✓ Created {path}[/green]")
+            #     except Exception as e:
+            #         log.write(f"[red]Failed to generate BHAVAI.md: {e}[/red]")
+
+            #     return
+
             ## COMMANDS
             is_command = False
 
@@ -155,7 +197,7 @@ def wake(action):
                         ))
                     console.print(f"[cyan]▶ Running command:[/cyan] [bold]/{command_name}[/bold]")
                 else:
-                    console.print(f"[bold red]✗ Error:[/bold red] Command '/{command_name}' exist nahi karti.")
+                    console.print(f"[bold red]✗ Error:[/bold red] Command '/{command_name}' Doesn't Exist.")
                     continue
 
 

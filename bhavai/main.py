@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 from rich.console import Console
 from rich.panel import Panel
-from rich.prompt import Prompt
+# from rich.prompt import Prompt
 
 from bhavai.config import get_config_summary, CWD, logger
 from bhavai.context import get_folder_tree_string
@@ -24,19 +24,97 @@ from bhavai.agent import run_agent_loop
 import getpass
 import time
 
+from prompt_toolkit.formatted_text import HTML
+from prompt_toolkit import prompt
+from prompt_toolkit import PromptSession
+
+
+
+
 SESSION_NAME = "NEW_CHAT_" + str(int(time.time()))
 
 
 console = Console()
 
-@click.group(invoke_without_command=True)
-@click.pass_context
-def main(ctx):
-    """BhavAI - A production-ready, personal AI agent in your terminal."""
-    if ctx.invoked_subcommand is None:
-        console.print("[bold red]Error:[/bold red] Missing command. Use [green]bhav wake up[/green] to activate the agent.")
-        sys.exit(1)
+# @click.group(invoke_without_command=True)
+# @click.group(
+#     invoke_without_command=True,
+#     help="""
+# 🚀 BhavAI — Personal Terminal AI Agent
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+# 📝 Session Commands
+#   /rename <session_name>   Rename the current session
+#   /save                    Save the current conversation
+
+# 💻 Shell Commands
+#   ! <command>              Run a terminal/bash command
+#                            Example: ! git status
+
+# ⚡ Agent Commands
+#   bhav wake up             Start BhavAI
+
+# 📚 Examples
+#   bhav wake up
+#   bhav --help
+#   /rename My_Project
+#   /save
+#   ! git status
+#   ! python app.py
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# """
+# )
+# @click.pass_context
+# def main(ctx):
+#     """BhavAI - A production-ready, personal AI agent in your terminal."""
+#     if ctx.invoked_subcommand is None:
+#         console.print("[bold red]Error:[/bold red] Missing command. Use [green]bhav wake up[/green] to activate the agent.")
+#         sys.exit(1)
+@click.group(invoke_without_command=True, add_help_option=False)
+@click.option("--help", "show_help", is_flag=True)
+@click.pass_context
+def main(ctx, show_help):
+    if show_help:
+        console.print(
+            Panel.fit(
+                """
+[bold cyan]🚀 BhavAI — Personal Terminal AI Agent[/bold cyan]
+
+[yellow]📝 Session Commands[/yellow]
+  [green]/rename <session_name>[/green]
+      Rename the current session
+
+  [green]/save[/green]
+      Save the current conversation
+
+[yellow]💻 Shell Commands[/yellow]
+  [green]! <command>[/green]
+      Run a terminal command
+      Example: [cyan]! git status[/cyan]
+
+[yellow]⚡ Agent Commands[/yellow]
+  [green]bhav wake up[/green]
+      Start BhavAI
+
+[yellow]📚 Examples[/yellow]
+  [cyan]bhav wake up[/cyan]
+  [cyan]bhav --help[/cyan]
+  [cyan]/rename My_Project[/cyan]
+  [cyan]! python app.py[/cyan]
+""",
+                title="BhavAI Help",
+                border_style="bright_blue",
+            )
+        )
+        ctx.exit()
+
+    if ctx.invoked_subcommand is None:
+        console.print(
+            "[bold red]Error:[/bold red] Missing command. "
+            "Use [green]bhav wake up[/green] to activate the agent."
+        )
+        ctx.exit(1)
 
 #-------------------------------------------------------------------------------------------------------------------
 
@@ -129,23 +207,67 @@ def wake(action):
     # Initialize session state
     current_mode = AgentMode.PLAN
     memory = ConversationMemory()
-    
+
+    from prompt_toolkit.formatted_text import HTML
+
+    session = PromptSession()
+
+
+
+    def get_prompt_text():
+        """
+        Live prompt that re-evaluate for every key stroke.
+        """
+        buf = session.default_buffer.text
+        if buf.startswith("!"):
+            return HTML('<ansired><b>(bash)</b></ansired> > ')
+        if current_mode == AgentMode.PLAN:
+            return HTML('<ansicyan><b>(plan)</b></ansicyan> > ')
+        else:
+            return HTML('<ansiyellow><b>(agent)</b></ansiyellow> > ')
+
     # Interactive REPL Loop
     while True:
         try:
             # Styled prompt input
             mode_color = "cyan" if current_mode == AgentMode.PLAN else "yellow"
             prompt_label = f"[bold {mode_color}]({current_mode})[/bold {mode_color}] > "
-            user_input = Prompt.ask(prompt_label).strip()
+            user_input = session.prompt(get_prompt_text).strip()
+            # user_input = Prompt.ask(prompt_label).strip()
             
             if not user_input:
                 continue
 
-            
+            # if user_input.startswith("!"):
+            #     prompt_label = "[bold red](bash)[/bold red] > "
 
             # from textual.widgets import Header, Footer, Input, RichLog
             # log = query_one("#log", RichLog)
             low = user_input.lower()
+
+
+            ## ! to run bash commands
+            import subprocess
+            import os
+
+            if user_input.startswith("!"):
+                command = user_input[1:].strip()
+
+                if not command:
+                    console.print("[red]No command provided.[/red]")
+                    continue
+
+                try:
+                    subprocess.run(
+                        command,
+                        shell=True,
+                        cwd=CWD,      # current project directory
+                        check=False
+                    )
+                except Exception as e:
+                    console.print(f"[red]Command failed:[/red] {e}")
+
+                continue
 
 
             ## To rename the session

@@ -390,6 +390,21 @@ def run_command(command: str) -> str:
         logger.error("run_command('%s'): %s", command, exc)
         return f"Error executing command: {exc}"
 
+def get_project_memory_string(cwd: Path) -> str:
+    """
+    Root folder mein BHAVAI.md dhoondta hai (case-insensitive glob).
+    Agar mile to uska text content return karta hai, warna empty string —
+    empty string return hone se system prompt mein us section ko clean
+    skip kiya ja sakta hai (koi "file not found" noise nahi).
+    """
+    for candidate in cwd.glob("[Bb][Hh][Aa][Vv][Aa][Ii].md"):
+        if candidate.is_file():
+            try:
+                return candidate.read_text(encoding="utf-8").strip()
+            except Exception as exc:
+                logger.warning("Failed to read %s: %s", candidate, exc)
+                return ""
+    return ""
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Tool dispatch registry

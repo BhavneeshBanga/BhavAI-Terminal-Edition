@@ -155,9 +155,9 @@ def _call_api(messages: list, calls: int,  temperature: float = 0.0) -> tuple[st
 
 
 
-                    print("\n===== MODEL CONTENT =====")
-                    print(content)
-                    print("=========================\n")
+                    # print("\n===== MODEL CONTENT =====")
+                    # print(content)
+                    # print("=========================\n")
 
 
 

@@ -31,7 +31,7 @@ from bhavai.config import CWD, logger
 from bhavai.context import get_folder_tree_string
 from bhavai.llm import query_llm_with_continuation   # ← NEW: use continuation
 from bhavai.memory import ConversationMemory
-from bhavai.tools import TOOL_DISPATCH
+from bhavai.tools import TOOL_DISPATCH, get_project_memory_string
 
 # ─────────────────────────────────────────────────────────────────────────────
 # System Prompt
@@ -39,7 +39,7 @@ from bhavai.tools import TOOL_DISPATCH
 
 SYSTEM_PROMPT_TEMPLATE = """You are BhavAI, a personal AI agent running inside the terminal.
 Activated folder: {cwd}
-
+{project_context_block}
 Current folder structure:
 {folder_tree}
 
@@ -294,6 +294,23 @@ def parse_llm_json(raw_text: str) -> dict:
 # Display helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
+
+def _build_project_context_block(cwd) -> str:
+    """
+    BHAVAI.md se project memory read karta hai aur agar mile to
+    system prompt mein daalne layak ek formatted block banata hai.
+    Empty string agar file nahi mili — template mein clean skip ho jaata hai.
+    """
+    memory = get_project_memory_string(cwd)
+    if not memory:
+        return ""
+    return (
+        "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "PROJECT CONTEXT  (loaded from BHAVAI.md)\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"{memory}\n"
+    )
+
 def _fmt_args(args: dict) -> str:
     """Short display of tool args — truncates long content values."""
     if not isinstance(args, dict):
@@ -353,10 +370,15 @@ def run_agent_loop(
         logger.info("ReAct step %d/%d", step_count, max_steps)
 
         folder_tree   = get_folder_tree_string(CWD)
+        project_context_block = _build_project_context_block(CWD)
+
         system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
             cwd=str(CWD),
+            project_context_block=project_context_block,
             folder_tree=folder_tree,
         )
+        # logger.debug("SYSTEM PROMPT:\n%s", system_prompt)
+        # print("system prompt : ", system_prompt)
 
         raw_response = ""
         with console.status("[bold blue]Thinking…[/bold blue]", spinner="dots"):

@@ -314,6 +314,17 @@ def append_chunk(path: str, chunk: str, done: bool = False) -> str:
 
         # First chunk → create/overwrite; subsequent → append
         write_mode = "a" if path in _chunk_state else "w"
+
+
+        # Naya:
+        if path in _chunk_state:
+            write_mode = "a"          # isi session mein pehle se chunks likhe ja chuke hain
+        elif resolved.exists():
+            write_mode = "a"          # file disk pe already hai — genuinely append karo
+        else:
+            write_mode = "w"
+
+
         with open(resolved, write_mode, encoding="utf-8") as fh:
             fh.write(chunk)
 

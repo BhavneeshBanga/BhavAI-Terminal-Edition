@@ -53,6 +53,8 @@ AVAILABLE TOOLS
 - append_chunk  → {{"path": "string", "chunk": "string", "done": true|false}}
     Appends one chunk to a file. Set done=true on the LAST chunk only.
     Use this for ANY file > 60 lines by splitting into chunks of ≤50 lines each.
+    Use this feature if you want to write after text , this append_chunk tool can add code at the end of file
+
 - run_command   → {{"command": "string"}}
     Safe read-only shell commands only (git status, ls, cat …).
 - search_code   → {{"query": "string", "path": "string (default '.')", "regex": true|false, "case_sensitive": true|false}}

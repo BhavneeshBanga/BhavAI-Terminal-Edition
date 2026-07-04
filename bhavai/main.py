@@ -7,7 +7,7 @@ bhav wake up
 ```
 in terminal to use this project
 """
-
+import threading
 import click
 import sys
 from pathlib import Path
@@ -29,9 +29,22 @@ from prompt_toolkit import prompt
 from prompt_toolkit import PromptSession
 
 
+from bhavai.scripts.initialize_markdown import generate_bhavai_md
+from bhavai.updater.updates import show_update_message
 
+import random
 
-SESSION_NAME = "NEW_CHAT_" + str(int(time.time()))
+lists = [
+    "💭Do you know run /save command can save your entire session into .bhavai/memories/<NAME>.md",
+    "💭Do you know run /init command make BHAVAI.md file specific to this folder",
+    "💭Do you know run /rename command rename the session",
+    "💭Do you know run ! <COMMAND> can be used for running bash commands",
+    "💭Do you know run /compact will summarize the entire conversation to free up context window",
+
+        ]
+
+do_you_know = random.choice(lists)
+
 
 
 console = Console()
@@ -102,6 +115,11 @@ def main(ctx, show_help):
   [cyan]bhav --help[/cyan]
   [cyan]/rename My_Project[/cyan]
   [cyan]! python app.py[/cyan]
+  [cyan]/push[/cyan]
+
+[yellow]🥷  Slash Commands[/yellow]
+  [cyan]/{COMMANDL_NAME}[/cyan]
+  
 """,
                 title="BhavAI Help",
                 border_style="bright_blue",
@@ -125,6 +143,8 @@ def wake(action):
     if action != "up":
         console.print(f"[bold red]Error:[/bold red] Invalid action '{action}'. Did you mean [green]bhav wake up[/green]?")
         sys.exit(1)
+
+    
         
     # Load configuration
     cfg = get_config_summary()
@@ -190,7 +210,8 @@ def wake(action):
         f"📍  [bold]Location:[/bold] {cfg['CWD']}\n"
         f"⚙️  [bold]Model:[/bold] {cfg['MODEL']}\n"
         f"🛡️  [bold]Initial Mode:[/bold] [bold cyan]Plan Mode[/bold cyan] (Default)\n"
-        f"📝 [bold]Logs Path:[/bold] {cfg['LOG_FILE']}\n\n"
+        f"📝 [bold]Logs Path:[/bold] {cfg['LOG_FILE']}\n"
+        # f"{do_you_know}\n\n"
         f"[dim]Type your requests below. Use 'mode agent' or 'mode plan' to toggle modes, 'exit' or 'quit' to close.[/dim]"
     )
     console.print(Panel(banner_text, title="BhavAI Personal Terminal Agent", border_style="green"))
@@ -200,6 +221,10 @@ def wake(action):
     try:
         tree_str = get_folder_tree_string(CWD)
         console.print(tree_str)
+        console.print("")
+        show_update_message(console)
+        console.print("")
+        console.print(do_you_know)
     except Exception as e:
         console.print(f"[yellow]Warning: Could not build folder tree: {e}[/yellow]")
     console.print()
@@ -225,6 +250,10 @@ def wake(action):
             return HTML('<ansicyan><b>(plan)</b></ansicyan> > ')
         else:
             return HTML('<ansiyellow><b>(agent)</b></ansiyellow> > ')
+        
+
+    SESSION_NAME = "NEW_CHAT_" + str(int(time.time()))
+
 
     # Interactive REPL Loop
     while True:
@@ -273,34 +302,44 @@ def wake(action):
             ## To rename the session
             if user_input.startswith("/rename"):
                 conversation_name = user_input.replace("/rename", "")
-                SESSION_NAME = conversation_name + str(int(time.time()))
+                SESSION_NAME = conversation_name + "_" + str(int(time.time()))
                 console.print(f"Conversation renamed to {conversation_name}")
                 continue
                 # print((result[1:]))
 
 
             if low == "/save":
-                save_path = CWD / f"{SESSION_NAME}.md"
+                # save_path = CWD /  f"{SESSION_NAME}.md"
+                memories_dir = CWD / ".bhavai" / "memories"
+                memories_dir.mkdir(parents=True, exist_ok=True)
+
+                save_path = memories_dir / f"{SESSION_NAME}.md"
                 try:
                     # self.memory.save_to_file(save_path)
                     memory.save_to_file(save_path)
                     # log.write(f"[green]✓ Conversation saved to {save_path}[/green]")
-                    print(f"[green]✓ Conversation saved to {save_path}[/green]")
+                    console.print(f"[green]✓ Conversation saved to {save_path}[/green]")
                 except Exception as e:
                     # log.write(f"[red]Failed to save conversation: {e}[/red]")
-                    print(f"[red]Failed to save conversation: {e}[/red]")
-                return
+                    console.print(f"[red]Failed to save conversation: {e}[/red]")
+                
+                continue
             
-            # if low == "/init":
-            #     log.write("[cyan]Generating BHAVAI.md...[/cyan]")
+            if low == "/init":
+                with console.status("[bold yellow]Generating BhavAI.md[/bold yellow]", spinner="dots"):
+                
+                    try:
+                        path = generate_bhavai_md(CWD)
+                        # stop_event.set()
+                        console.print(f"[green]✓ Created {path}[/green]")
+                    except Exception as e:
+                        # stop_event.set()
+                        console.print(f"[red]Failed to generate BHAVAI.md: {e}[/red]")
 
-            #     try:
-            #         path = await asyncio.to_thread(generate_bhavai_md, CWD)
-            #         log.write(f"[green]✓ Created {path}[/green]")
-            #     except Exception as e:
-            #         log.write(f"[red]Failed to generate BHAVAI.md: {e}[/red]")
 
-            #     return
+
+
+
 
             ## COMMANDS
             is_command = False
@@ -375,6 +414,14 @@ def wake(action):
         except Exception as e:
             console.print(f"[bold red]Unexpected Error:[/bold red] {e}")
             logger.exception("REPL session encountered unexpected error: %s", e)
+
+
+@main.command()
+def dev():
+    print("Opening developer dashboard...")
+
+
+
 
 if __name__ == "__main__":
     main()

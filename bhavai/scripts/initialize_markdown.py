@@ -128,5 +128,20 @@ def scan_and_summarize_project(
     return summary
 
 
+
+def generate_bhavai_md(root: Path) -> Path:
+    """Walk `root`, collect every non-ignored file's path + content, and
+    write a single BHAVAI.md snapshot of the codebase at the project root.
+    Runs synchronously — call via asyncio.to_thread() from async code.
+    """
+    scan_and_summarize_project(root_dir=root)
+
+    out_path = Path(root) / "BHAVAI.md"
+    # out_path.write_text(header + "".join(sections), encoding="utf-8")
+    return out_path
+
+
+
+
 if __name__ == "__main__":
     scan_and_summarize_project(root_dir=".")

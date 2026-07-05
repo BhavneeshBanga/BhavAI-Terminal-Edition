@@ -32,16 +32,19 @@ from bhavai.context import get_folder_tree_string
 from bhavai.llm import query_llm_with_continuation   # ← NEW: use continuation
 from bhavai.memory import ConversationMemory
 from bhavai.tools import TOOL_DISPATCH, get_project_memory_string
-
+from bhavai.skill_getter import discover_skills_from_dot_bhavai
 # ─────────────────────────────────────────────────────────────────────────────
 # System Prompt
 # ─────────────────────────────────────────────────────────────────────────────
 
 SYSTEM_PROMPT_TEMPLATE = """You are BhavAI, a personal AI agent running inside the terminal.
 Activated folder: {cwd}
+
 {project_context_block}
 Current folder structure:
 {folder_tree}
+skills you have:
+{skills_block}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 AVAILABLE TOOLS
@@ -141,7 +144,6 @@ RESPONSE FORMAT  (raw JSON only — no markdown fences, no extra text)
 
 Inside JSON strings:  newline → \\n   quote → \\"   backslash → \\\\
 """
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # JSON Cleaning Pipeline (unchanged from v1 — still needed as safety net)
@@ -378,6 +380,7 @@ def run_agent_loop(
             cwd=str(CWD),
             project_context_block=project_context_block,
             folder_tree=folder_tree,
+            skills_block=discover_skills_from_dot_bhavai(CWD),
         )
         # logger.debug("SYSTEM PROMPT:\n%s", system_prompt)
         # print("system prompt : ", system_prompt)

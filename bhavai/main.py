@@ -41,7 +41,8 @@ lists = [
     "💭 Do you know run ! <COMMAND> can be used for running bash commands",
     "💭 Do you know run /compact will summarize the entire conversation to free up context window",
     "💭 Do you know run bhav --help tell you about the BhavAI project",
-
+    "💭 Do you know run bhav dev opens your browswer so that you can manage your config related keys",
+    "💭 Do you know you can add your own custom skill in .bhavai/skills/<SKILL_NAME>/SKILL.md",
         ]
 
 do_you_know = random.choice(lists)
@@ -381,12 +382,102 @@ def wake(action):
             console.print(f"[bold red]Unexpected Error:[/bold red] {e}")
             logger.exception("REPL session encountered unexpected error: %s", e)
 
+import shutil
+import subprocess
+import sys
+import time
+import urllib.request
+import webbrowser
+from pathlib import Path
+
+import click
+
+BACKEND_APP = "bhavai.api:app"          # bhavai/api.py → app = FastAPI(...)
+BACKEND_HOST = "127.0.0.1"
+BACKEND_PORT = 8000
+
+FRONTEND_DIR = Path(__file__).resolve().parent / "webui"   # bhavai/webui/
+FRONTEND_PORT = 3000
+
+import urllib.error
+def _wait_for_server(url: str, timeout_seconds: int = 45) -> bool:
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        try:
+            urllib.request.urlopen(url, timeout=1.5)
+            return True
+        except urllib.error.HTTPError:
+            # Koi bhi HTTP response mila (chahe 404) — matlab server chal raha hai.
+            return True
+        except Exception:
+            time.sleep(0.5)
+    return False
+
+
+def _npm_executable() -> str:
+    npm = shutil.which("npm.cmd") or shutil.which("npm")
+    if not npm:
+        raise click.ClickException(
+            "Could not find npm on your PATH. Install Node.js from "
+            "https://nodejs.org and try again."
+        )
+    return npm
+
 
 @main.command()
 def dev():
+    """
+    Start the backend + frontend 
+    and open the dashboard.
+    """
+    if not FRONTEND_DIR.exists():
+        raise click.ClickException(f"Frontend directory not found: {FRONTEND_DIR}")
+
     print("Opening developer dashboard...")
 
+    backend_proc = subprocess.Popen(
+        [
+            sys.executable, "-m", "uvicorn", BACKEND_APP,
+            "--host", BACKEND_HOST,
+            "--port", str(BACKEND_PORT),
+            "--reload",
+        ],
+    )
 
+    frontend_proc = subprocess.Popen(
+        [_npm_executable(), "run", "dev"],
+        cwd=str(FRONTEND_DIR),
+    )
+
+    try:
+        frontend_url = f"http://localhost:{FRONTEND_PORT}/dev"
+        if _wait_for_server(f"http://localhost:{FRONTEND_PORT}"):
+            click.echo(f"Opening developer dashboard at {frontend_url}")
+            webbrowser.open(frontend_url)
+        else:
+            click.echo(f"Frontend didn't respond in time — open {frontend_url} manually.")
+
+        click.echo("Press Ctrl+C to stop both servers.")
+        while True:
+            if backend_proc.poll() is not None:
+                click.echo("Backend process exited unexpectedly.")
+                break
+            if frontend_proc.poll() is not None:
+                click.echo("Frontend process exited unexpectedly.")
+                break
+            time.sleep(0.5)
+
+    except KeyboardInterrupt:
+        click.echo("\nShutting down...")
+    finally:
+        for proc in (frontend_proc, backend_proc):
+            if proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+        click.echo("Stopped.")
 
 
 if __name__ == "__main__":

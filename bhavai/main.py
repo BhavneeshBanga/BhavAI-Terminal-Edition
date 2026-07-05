@@ -35,11 +35,12 @@ from bhavai.updater.updates import show_update_message
 import random
 
 lists = [
-    "💭Do you know run /save command can save your entire session into .bhavai/memories/<NAME>.md",
-    "💭Do you know run /init command make BHAVAI.md file specific to this folder",
-    "💭Do you know run /rename command rename the session",
-    "💭Do you know run ! <COMMAND> can be used for running bash commands",
-    "💭Do you know run /compact will summarize the entire conversation to free up context window",
+    "💭 Do you know run /save command can save your entire session into .bhavai/memories/<NAME>.md",
+    "💭 Do you know run /init command make BHAVAI.md file specific to this folder",
+    "💭 Do you know run /rename command rename the session",
+    "💭 Do you know run ! <COMMAND> can be used for running bash commands",
+    "💭 Do you know run /compact will summarize the entire conversation to free up context window",
+    "💭 Do you know run bhav --help tell you about the BhavAI project",
 
         ]
 
@@ -49,41 +50,6 @@ do_you_know = random.choice(lists)
 
 console = Console()
 
-# @click.group(invoke_without_command=True)
-# @click.group(
-#     invoke_without_command=True,
-#     help="""
-# 🚀 BhavAI — Personal Terminal AI Agent
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-# 📝 Session Commands
-#   /rename <session_name>   Rename the current session
-#   /save                    Save the current conversation
-
-# 💻 Shell Commands
-#   ! <command>              Run a terminal/bash command
-#                            Example: ! git status
-
-# ⚡ Agent Commands
-#   bhav wake up             Start BhavAI
-
-# 📚 Examples
-#   bhav wake up
-#   bhav --help
-#   /rename My_Project
-#   /save
-#   ! git status
-#   ! python app.py
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# """
-# )
-# @click.pass_context
-# def main(ctx):
-#     """BhavAI - A production-ready, personal AI agent in your terminal."""
-#     if ctx.invoked_subcommand is None:
-#         console.print("[bold red]Error:[/bold red] Missing command. Use [green]bhav wake up[/green] to activate the agent.")
-#         sys.exit(1)
 @click.group(invoke_without_command=True, add_help_option=False)
 @click.option("--help", "show_help", is_flag=True)
 @click.pass_context
@@ -118,7 +84,7 @@ def main(ctx, show_help):
   [cyan]/push[/cyan]
 
 [yellow]🥷  Slash Commands[/yellow]
-  [cyan]/{COMMANDL_NAME}[/cyan]
+  [cyan]/<COMMANDL_NAME>[/cyan]
   
 """,
                 title="BhavAI Help",
@@ -160,7 +126,7 @@ def wake(action):
         ))
         sys.exit(1)
         
-    # Print beautiful activation banner
+    
     import time
     R   = "\033[0m"
     YEL = "\033[1;93m"

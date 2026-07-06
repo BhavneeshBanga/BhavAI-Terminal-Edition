@@ -67,52 +67,57 @@ def generate_plan(user_input: str, folder_tree: str, feedback: str = None) -> li
             f"Execute requested task: {user_input}"
         ]
 
-def prompt_and_confirm_plan(user_input: str, folder_tree: str, console: Console) -> tuple[bool, list]:
-    """
-    Shows the step-by-step plan to the user in the terminal and waits for approval.
-    Allows user to confirm (y), cancel (n), or input feedback to regenerate the plan.
-    Returns (should_proceed, plan_steps).
-    """
-    feedback = None
-    while True:
-        with console.status("[bold blue]Generating plan...", spinner="dots"):
-            plan_steps = generate_plan(user_input, folder_tree, feedback)
+
+
+## comment kar rha hoon 
+# def prompt_and_confirm_plan(user_input: str, folder_tree: str, console: Console) -> tuple[bool, list]:
+#     """
+#     Shows the step-by-step plan to the user in the terminal and waits for approval.
+#     Allows user to confirm (y), cancel (n), or input feedback to regenerate the plan.
+#     Returns (should_proceed, plan_steps).
+#     """
+#     feedback = None
+#     while True:
+#         with console.status("[bold blue]Generating plan...", spinner="dots"):
+#             plan_steps = generate_plan(user_input, folder_tree, feedback)
             
-        console.print("\n[bold cyan]Here's my plan:[/bold cyan]")
-        for idx, step in enumerate(plan_steps, 1):
-            console.print(f" [bold cyan]{idx}.[/bold cyan] {step}")
-        console.print()
+#         console.print("\n[bold cyan]Here's my plan:[/bold cyan]")
+#         for idx, step in enumerate(plan_steps, 1):
+#             console.print(f" [bold cyan]{idx}.[/bold cyan] {step}")
+#         console.print()
         
-        ans = Prompt.ask(
-            "[bold yellow]Proceed?[/bold yellow] ([green]y[/green] to proceed, [red]n[/red] to cancel, or type feedback to edit the plan)"
-        ).strip()
+#         ans = Prompt.ask(
+#             "[bold yellow]Proceed?[/bold yellow] ([green]y[/green] to proceed, [red]n[/red] to cancel, or type feedback to edit the plan)"
+#         ).strip()
         
-        if ans.lower() == 'y':
-            return True, plan_steps
-        elif ans.lower() in ('n', 'no', ''):
-            console.print("[yellow]Plan execution cancelled.[/yellow]")
-            return False, []
-        else:
-            # if  user provided feedback to adjust the plan
-            feedback = ans
-            console.print(f"[blue]Updating plan based on feedback: '{feedback}'...[/blue]")
+#         if ans.lower() == 'y':
+#             return True, plan_steps
+#         elif ans.lower() in ('n', 'no', ''):
+#             console.print("[yellow]Plan execution cancelled.[/yellow]")
+#             return False, []
+#         else:
+#             # if  user provided feedback to adjust the plan
+#             feedback = ans
+#             console.print(f"[blue]Updating plan based on feedback: '{feedback}'...[/blue]")
 
 ## erro de rha hai ui update mai 
-# def prompt_and_confirm_plan(user_input: str, folder_tree: str, console: Console, feedback: str = None) -> list:
-#     """
-#     Generates and displays the plan. Does NOT block for confirmation —
-#     the TUI's Input box handles that via its own state machine.
-#     Returns the plan_steps list.
-#     """
-#     with console.status("[bold blue]Generating plan...", spinner="dots"):
-#         plan_steps = generate_plan(user_input, folder_tree, feedback)
+## claude ne bola uncommment karne ko
 
-#     console.print("\n[bold cyan]Here's my plan:[/bold cyan]")
-#     for idx, step in enumerate(plan_steps, 1):
-#         console.print(f" [bold cyan]{idx}.[/bold cyan] {step}")
-#     console.print()
-#     console.print(
-#         "[bold yellow]Proceed?[/bold yellow] ([green]y[/green] to proceed, "
-#         "[red]n[/red] to cancel, or type feedback to edit the plan)"
-#     )
-#     return plan_steps
+def prompt_and_confirm_plan(user_input: str, folder_tree: str, console: Console, feedback: str = None) -> list:
+    """
+    Generates and displays the plan. Does NOT block for confirmation —
+    the TUI's Input box handles that via its own state machine.
+    Returns the plan_steps list.
+    """
+    with console.status("[bold blue]Generating plan...", spinner="dots"):
+        plan_steps = generate_plan(user_input, folder_tree, feedback)
+
+    console.print("\n[bold cyan]Here's my plan:[/bold cyan]")
+    for idx, step in enumerate(plan_steps, 1):
+        console.print(f" [bold cyan]{idx}.[/bold cyan] {step}")
+    console.print()
+    console.print(
+        "[bold yellow]Proceed?[/bold yellow] ([green]y[/green] to proceed, "
+        "[red]n[/red] to cancel, or type feedback to edit the plan)"
+    )
+    return plan_steps

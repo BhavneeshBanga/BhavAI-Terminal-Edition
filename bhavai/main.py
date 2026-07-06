@@ -35,7 +35,7 @@ from bhavai.updater.updates import show_update_message
 import random
 
 lists = [
-    "💭 Do you know run /save command can save your entire session into .bhavai/memories/<NAME>.md",
+    "💭 Do you know run /export command can export your entire session into .bhavai/memories/<NAME>.md",
     "💭 Do you know run /init command make BHAVAI.md file specific to this folder",
     "💭 Do you know run /rename command rename the session",
     "💭 Do you know run ! <COMMAND> can be used for running bash commands",
@@ -65,7 +65,7 @@ def main(ctx, show_help):
   [green]/rename <session_name>[/green]
       Rename the current session
 
-  [green]/save[/green]
+  [green]/export[/green]
       Save the current conversation
 
 [yellow]💻 Shell Commands[/yellow]
@@ -275,7 +275,7 @@ def wake(action):
                 # print((result[1:]))
 
 
-            if low == "/save":
+            if low == "/export":
                 # save_path = CWD /  f"{SESSION_NAME}.md"
                 memories_dir = CWD / ".bhavai" / "memories"
                 memories_dir.mkdir(parents=True, exist_ok=True)
@@ -287,8 +287,8 @@ def wake(action):
                     # log.write(f"[green]✓ Conversation saved to {save_path}[/green]")
                     console.print(f"[green]✓ Conversation saved to {save_path}[/green]")
                 except Exception as e:
-                    # log.write(f"[red]Failed to save conversation: {e}[/red]")
-                    console.print(f"[red]Failed to save conversation: {e}[/red]")
+                    # log.write(f"[red]Failed to export conversation: {e}[/red]")
+                    console.print(f"[red]Failed to export conversation: {e}[/red]")
                 
                 continue
             
@@ -483,13 +483,13 @@ def dev():
 if __name__ == "__main__":
     main()
 
-#-------------------------------------------------------------------------------------------------------------------
+# #-------------------------------------------------------------------------------------------------------------------
 
 
 # uncomment bottom code and commend upper code block to change ui
+
+
 # from bhavai.tui import BhavAI
-
-
 
 # @main.command()
 # @click.argument("action", default="up")

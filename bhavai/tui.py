@@ -33,6 +33,10 @@ from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
+from textual.widgets import Static
+from textual.screen import ModalScreen
+from textual.widgets import Button, Label
+from textual.containers import Horizontal, Vertical
 from textual.app import App, ComposeResult
 from textual.containers import Container
 from textual.widgets import Header, Footer, Input, RichLog
@@ -138,22 +142,78 @@ def list_available_commands(limit: int = 5) -> list[tuple[str, str]]:
             break
     return results
 
+
+class ConfirmScreen(ModalScreen[bool]):
+    """Yes/No popup — Claude Code jaisa 'proceed?' dialog. dismiss(True/False) return karta hai."""
+
+    CSS = """
+    ConfirmScreen {
+        align: center bottom;
+        background: transparent;
+    }
+    #confirm-box {
+        width: auto;
+        max-width: 70;
+        height: auto;
+        border: round yellow;
+        background: $surface;
+        padding: 0 2;
+        margin-bottom: 4;
+    }
+    #confirm-buttons { align: center middle; height: auto; margin-top: 1; }
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__()
+        self.message = message
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="confirm-box"):
+            yield Label(self.message)
+            with Horizontal(id="confirm-buttons"):
+                yield Button("Yes", id="yes", variant="success")
+                yield Button("No", id="no", variant="error")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss(event.button.id == "yes")
+
+
+
 class LogConsole:
     """Drop-in replacement for rich.Console — writes into the TUI's RichLog
     instead of raw stdout. Same .print()/.status() interface so modes.py
     and agent.py need ZERO changes.
     """
-    def __init__(self, log: "RichLog") -> None:
+    def __init__(self, log: "RichLog", app: "BhavAI") -> None:
         self._log = log
+        self._app = app
 
     def print(self, *args, **kwargs) -> None:
         for arg in args:
             self._log.write(arg)
 
-    def status(self, message: str, spinner: str = "dots"):
+    # def status(self, message: str, spinner: str = "dots"):
         # No real spinner in log mode — just print the status line once.
-        self._log.write(message)
-        return _NoopStatus()
+        # self._log.write(message)
+        # return _NoopStatus()
+    def status(self, message: str, spinner: str = "dots"):
+        return _LiveStatus(self._app, message)
+
+    
+    def confirm(self, message: str) -> bool:
+        """Worker thread ko block karta hai jab tak user modal mein Yes/No na daba de."""
+        return self._app.call_from_thread(self._app.push_screen_wait, ConfirmScreen(message))
+
+class _LiveStatus:
+    def __init__(self, app, message):
+        self._app = app
+        self._message = message
+    def __enter__(self):
+        self._app.call_from_thread(self._app.start_status, self._message)
+        return self
+    def __exit__(self, *exc):
+        self._app.call_from_thread(self._app.stop_status)
+        return False
 
 
 class _NoopStatus:
@@ -164,6 +224,13 @@ class _NoopStatus:
     
 class BhavAI(App):
     """Persistent chat-style TUI for the BhavAI agent."""
+    COLOR_USER = "bold cyan"
+    COLOR_AGENT = "bold magenta"
+    COLOR_SUCCESS = "bold green"
+    COLOR_ERROR = "bold red"
+    COLOR_WARNING = "yellow"
+    COLOR_TOOL = "blue"
+    COLOR_DIM = "dim"
 
     CSS = """
     Screen {
@@ -196,6 +263,13 @@ class BhavAI(App):
     #command-suggestions.visible {
         display: block;
     }
+    #status-bar {
+        dock: bottom;
+        height: 1;
+        margin: 0 1;
+        color: $accent;
+        display: none;
+    }
     """
 
     BINDINGS = [
@@ -209,6 +283,7 @@ class BhavAI(App):
         self.cfg = get_config_summary()
         self.memory = ConversationMemory()
         self.log_console: "LogConsole | None" = None
+        
         self.awaiting_plan_confirmation = False
         self._pending_user_input: str | None = None
         self._pending_plan_steps: list = []
@@ -223,6 +298,7 @@ class BhavAI(App):
         yield Header(show_clock=True)
         with Container():
             yield RichLog(id="log", wrap=True, markup=True, highlight=True)
+            yield Static(id="status-bar")
             yield Input(
                 placeholder=self._placeholder(),
                 id="input-box",
@@ -233,7 +309,26 @@ class BhavAI(App):
     def _placeholder(self) -> str:
         # return f"({self.mode}) \u276f Try \"refactor this file\" or \"run the tests\""
         return f"({self.mode}) ❯ Run /init to create a BHAVAI.md file"
+    SPINNER_FRAMES = ["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"]
 
+    def start_status(self, message: str) -> None:
+        self._status_message = message
+        self._status_frame = 0
+        bar = self.query_one("#status-bar", Static)
+        bar.display = True
+        self._status_timer = self.set_interval(0.08, self._tick_status)
+
+    def _tick_status(self) -> None:
+        bar = self.query_one("#status-bar", Static)
+        frame = self.SPINNER_FRAMES[self._status_frame % len(self.SPINNER_FRAMES)]
+        bar.update(f"{frame} {self._status_message}")
+        self._status_frame += 1
+
+    def stop_status(self) -> None:
+        if getattr(self, "_status_timer", None):
+            self._status_timer.stop()
+        bar = self.query_one("#status-bar", Static)
+        bar.display = False
     def on_mount(self) -> None:
         if not self.cfg.get("API_KEY_PRESENT"):
             self.exit(
@@ -258,7 +353,7 @@ class BhavAI(App):
         log.write(
             Text("? for shortcuts · mode agent / mode plan to switch", style="dim"),
         )
-        self.log_console = LogConsole(log)
+        self.log_console= LogConsole(log, self)
 
         self.query_one(Input).focus()
 
@@ -357,7 +452,7 @@ class BhavAI(App):
             return
 
         log = self.query_one("#log", RichLog)
-        log.write(Text.assemble(("\u276f ", "bold green"), (user_input, "bold")))
+        log.write(Text.assemble(("\u276f ", self.COLOR_USER), (user_input, "bold")))
 
         low = user_input.lower()
         if self.awaiting_plan_confirmation:
@@ -431,20 +526,30 @@ class BhavAI(App):
             return
 
         if self.mode == AgentMode.PLAN:
-            folder_tree = get_folder_tree_string(CWD)
-            plan_steps = prompt_and_confirm_plan(user_input, folder_tree, self.log_console)
-            self._pending_user_input = user_input
-            self._pending_plan_steps = plan_steps
-            self.awaiting_plan_confirmation = True
+            self._start_plan_worker(user_input)
         else:
             self._start_agent_worker(user_input)
 
     # ------------------------------------------------------------------ #
     # Task execution — hands the real terminal back via suspend()
-    # ------------------------------------------------------------------ #
+    # ------------------------------------------------------------------ 
+    def _start_plan_worker(self, user_input: str) -> None:
+        self.run_worker(
+            lambda: self._plan_worker(user_input),
+            exclusive=True,
+            thread=True,
+        )
+
+    def _plan_worker(self, user_input: str) -> None:
+        folder_tree = get_folder_tree_string(CWD)
+        plan_steps = prompt_and_confirm_plan(user_input, folder_tree, self.log_console)
+        self._pending_user_input = user_input
+        self._pending_plan_steps = plan_steps
+        self.awaiting_plan_confirmation = True
+
     def _start_agent_worker(self, user_input: str, plan_steps: list | None = None) -> None:
         self.run_worker(
-            self._agent_worker(user_input, plan_steps),
+            lambda : self._agent_worker(user_input, plan_steps),
             exclusive=True,
             thread=True,
         )

@@ -33,6 +33,9 @@ from bhavai.llm import query_llm_with_continuation   # ← NEW: use continuation
 from bhavai.memory import ConversationMemory
 from bhavai.tools import TOOL_DISPATCH, get_project_memory_string
 from bhavai.skill_getter import discover_skills_from_dot_bhavai
+
+MUTATING_TOOLS = {"write_file", "update_file", "append_chunk", "run_command"}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # System Prompt
 # ─────────────────────────────────────────────────────────────────────────────
@@ -98,6 +101,43 @@ AVAILABLE TOOLS
 - final_answer  → {{"answer": "string"}}
     Call this when the entire task is complete.
 
+
+- read_file_chunk → {{"path": "string", "start_line": "int", "end_line": "int"}}
+    Reads only a specific line range (1-indexed, inclusive) from a file,
+    with line numbers. Use this instead of read_file for files longer than
+    ~100 lines when you only need a portion of it.
+- find_symbol   → {{"name": "string", "path": "string (default '.')"}}
+    Project-wide "go to definition" — finds every class/function/variable
+    named `name` across ALL .py files, not just one file. Use this FIRST
+    when you need to know WHERE something is defined anywhere in the project.
+- find_references → {{"name": "string", "path": "string (default '.')"}}
+    Finds every place `name` is USED (not defined) across the project.
+    More precise than search_code for symbols — pairs with find_symbol
+    ("defined where" vs "used where").
+- replace_lines → {{"path": "string", "start_line": "int", "end_line": "int", "new_content": "string"}}
+    Replaces an exact line range in ANY file (not limited to Python
+    functions). Use get_outline / find_symbol / read_file_chunk first to
+    know the exact line numbers before calling this.
+- insert_lines  → {{"path": "string", "after_line": "int", "content": "string"}}
+    Inserts new content after a specific line number, in any file type.
+    Use after_line=0 to insert at the very top of the file.
+- delete_lines  → {{"path": "string", "start_line": "int", "end_line": "int"}}
+    Deletes an exact line range from a file. A git checkpoint is committed
+    automatically BEFORE the deletion happens, so it is always recoverable
+    with revert_file. Use only when you are CERTAIN those lines should go —
+    prefer replace_lines if you're actually replacing content, not removing it.
+- run_tests     → {{"path": "string (default '.')", "command": "string (optional)"}}
+    Runs the project's test suite (auto-detects pytest / npm test if
+    `command` is omitted). ALWAYS run this after making code changes,
+    before calling final_answer, to verify your change didn't break anything.
+- lint_file     → {{"path": "string"}}
+    Runs a linter (ruff/flake8 for .py, eslint for .js/.ts) on one file, if
+    installed. Use to catch syntax/style issues before calling final_answer.
+- revert_file   → {{"path": "string"}}
+    Restores a file to its last git-committed state — the undo button for
+    write_file / append_chunk / replace_lines / insert_lines / delete_lines.
+    Use this if a change you just made turns out to be wrong.
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 STRICT RULES  (never break these)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -110,12 +150,24 @@ STRICT RULES  (never break these)
    secrets file. These are permanently blocked.
 7. Prefer search_code / find_files / get_outline over read_file when you only need to
    locate something — this saves tokens and avoids dumping whole files into context.
-8. There is no delete tool, on purpose. To reorganize files use rename_path, never run_command
-   with rm/mv shell tricks (they will be blocked anyway).
+8. There is still NO tool to delete an entire file or directory, on purpose. To reorganize
+   files use rename_path, never run_command with rm/mv shell tricks (they will be blocked
+   anyway). delete_lines only removes lines WITHIN a file that still exists — it is not a
+   file-deletion tool, and it always checkpoints via git first.
 9. To add or change a SINGLE function in an existing Python file, prefer insert_function /
    replace_function over write_file or append_chunk — they only touch that one function via
    AST, so the rest of the file (and your token budget) is untouched.
-
+10. Use find_symbol / find_references instead of search_code when looking for a specific
+    class, function, or variable by name — they use AST, so they won't be confused by that
+    name appearing inside a comment or string elsewhere.
+11. Use replace_lines / insert_lines (not insert_function / replace_function) when editing
+    non-Python files, or when the change isn't a whole top-level function.
+12. Prefer replace_lines over delete_lines whenever you are swapping content rather than
+    purely removing it — delete_lines should only be used when nothing is replacing those
+    lines.
+13. After making a code change, run run_tests (if a test suite exists) before calling
+    final_answer. If a change breaks something, use revert_file to undo it rather than
+    trying to manually patch it back.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ⚠  OUTPUT TOKEN BUDGET — READ CAREFULLY
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -468,6 +520,19 @@ def run_agent_loop(
         if tool_name in TOOL_DISPATCH:
             tool_func    = TOOL_DISPATCH[tool_name]
             args_display = _fmt_args(tool_args)
+
+
+            if tool_name in MUTATING_TOOLS and console is not None and hasattr(console, "confirm"):
+                approved = console.confirm(
+                    f"Run {tool_name}({args_display})?\nYe file modify karega ya command chalayega."
+                )
+                if not approved:
+                    result = f"User declined to run '{tool_name}'. Skipped."
+                    console.print(f"[yellow]✗ Skipped {tool_name} (user declined)[/yellow]")
+                    memory.add_message("assistant", raw_response)
+                    memory.add_message("system", f"Observation from {tool_name}:\n{result}")
+                    calls += 1
+                    continue
             with console.status(
                 f"[bold blue][TOOL][/bold blue] "
                 f"[bold green]{tool_name}[/bold green]({args_display})…",
@@ -483,9 +548,11 @@ def run_agent_loop(
                       f"Available: {list(TOOL_DISPATCH.keys())}")
             logger.warning("Unknown tool: %s", tool_name)
 
+        text_to_be_displayed_inside_console = result[:100]
         console.print(Panel(
-            str(result),
-            title=f"[bold]🔍 Observation — {tool_name}[/bold]",
+            # str(result),
+            str(text_to_be_displayed_inside_console),
+            title=f"[bold]🔍 Observation — {tool_name}[/bold] - {tool_args['path']}",
             title_align="left",
             border_style="blue",
         ))

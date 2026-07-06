@@ -46,7 +46,9 @@ from bhavai.config import logger, CWD
 from bhavai.context import is_env_file, parse_gitignore, should_ignore
 from bhavai.tools import validate_path, _git_stage, ensure_git_initialized
 
-
+import shutil
+...
+from bhavai.tools import validate_path, _git_stage, ensure_git_initialized, validate_command
 # ─────────────────────────────────────────────────────────────────────────────
 # Shared helper: walk the project respecting the same ignore rules as the
 # folder tree (so search/find never touches .git, node_modules, .env, etc.)
@@ -712,6 +714,356 @@ def replace_function(path: str, function_name: str, new_source: str) -> str:
         f"Run `git diff HEAD` to review."
     )
 
+def read_file_chunk(path: str, start_line: int, end_line: int) -> str:
+    """
+    Reads only a specific line range from a file (1-indexed, inclusive),
+    with line numbers — the reading counterpart to append_chunk.
+    """
+    logger.info("read_file_chunk('%s', %d, %d)", path, start_line, end_line)
+    resolved = validate_path(path)
+
+    if is_env_file(resolved):
+        return f"Access Denied: '{path}' is an environment/secrets file."
+    if not resolved.exists():
+        return f"Error: '{path}' does not exist."
+    if not resolved.is_file():
+        return f"Error: '{path}' is a directory."
+
+    text = _read_text_safe(resolved)
+    if text is None:
+        return f"Error: '{path}' is not a readable text file (binary or too large)."
+
+    lines = text.splitlines()
+    total = len(lines)
+    if start_line < 1 or end_line < start_line:
+        return f"Error: invalid range {start_line}-{end_line} (file has {total} lines)."
+
+    snippet = lines[start_line - 1 : min(end_line, total)]
+    numbered = "\n".join(f"{i:4d} | {line}" for i, line in enumerate(snippet, start=start_line))
+    suffix = "" if end_line <= total else f" (file only has {total} lines)"
+    return f"'{path}' lines {start_line}-{min(end_line, total)}{suffix}:\n\n{numbered}"
+
+
+
+
+def find_symbol(name: str, path: str = ".") -> str:
+    """
+    Project-wide "go to definition": finds every class, function, or
+    top-level variable named `name`, across all .py files under `path`.
+    """
+    logger.info("find_symbol('%s', path='%s')", name, path)
+    root = validate_path(path)
+    if not root.exists():
+        return f"Error: '{path}' does not exist."
+
+    files = [root] if root.is_file() and root.suffix == ".py" else \
+        [f for f in _iter_project_files(root) if f.suffix == ".py"]
+
+    matches = []
+    for f in files:
+        text = _read_text_safe(f)
+        if text is None:
+            continue
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            continue
+        rel = f.relative_to(CWD)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef) and node.name == name:
+                matches.append(f"{rel}:{node.lineno}: class {name}")
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
+                matches.append(f"{rel}:{node.lineno}: def {name}")
+            elif isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name) and target.id == name:
+                        matches.append(f"{rel}:{node.lineno}: {name} = ...")
+
+    if not matches:
+        return f"No definition of '{name}' found under '{path}'."
+    return f"Found {len(matches)} definition(s) of '{name}':\n" + "\n".join(matches)
+
+
+def find_references(name: str, path: str = ".") -> str:
+    """
+    Finds every USAGE of `name` (call, read, attribute access) — pairs
+    with find_symbol ("defined where" vs "used where").
+    """
+    logger.info("find_references('%s', path='%s')", name, path)
+    root = validate_path(path)
+    if not root.exists():
+        return f"Error: '{path}' does not exist."
+
+    files = [root] if root.is_file() and root.suffix == ".py" else \
+        [f for f in _iter_project_files(root) if f.suffix == ".py"]
+
+    matches = []
+    for f in files:
+        text = _read_text_safe(f)
+        if text is None:
+            continue
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            continue
+        rel = f.relative_to(CWD)
+        lines = text.splitlines()
+        for node in ast.walk(tree):
+            hit = (isinstance(node, ast.Name) and node.id == name) or \
+                  (isinstance(node, ast.Attribute) and node.attr == name)
+            if hit:
+                line_text = lines[node.lineno - 1].strip() if node.lineno <= len(lines) else ""
+                matches.append(f"{rel}:{node.lineno}: {line_text}")
+
+    if not matches:
+        return f"No references to '{name}' found under '{path}'."
+    return f"Found {len(matches)} reference(s) to '{name}':\n" + "\n".join(matches)
+
+def replace_lines(path: str, start_line: int, end_line: int, new_content: str) -> str:
+    """
+    Replaces lines start_line..end_line (1-indexed, inclusive) with
+    new_content, in ANY text file — not limited to Python.
+    """
+    logger.info("replace_lines('%s', %d, %d)", path, start_line, end_line)
+    ensure_git_initialized()
+    resolved = validate_path(path)
+
+    if is_env_file(resolved):
+        return f"Access Denied: '{path}' is an environment/secrets file."
+    if not resolved.exists():
+        return f"Error: '{path}' does not exist."
+
+    try:
+        lines = resolved.read_text(encoding="utf-8").splitlines()
+    except Exception as exc:
+        return f"Error reading '{path}': {exc}"
+
+    total = len(lines)
+    if start_line < 1 or end_line < start_line or start_line > total:
+        return f"Error: invalid range {start_line}-{end_line} (file has {total} lines)."
+
+    new_lines = new_content.splitlines()
+    updated = lines[: start_line - 1] + new_lines + lines[end_line:]
+
+    try:
+        resolved.write_text("\n".join(updated) + "\n", encoding="utf-8")
+        _git_stage(resolved)
+    except Exception as exc:
+        logger.error("replace_lines('%s'): %s", path, exc)
+        return f"Error writing '{path}': {exc}"
+
+    return (f"✓ Replaced lines {start_line}-{end_line} in '{path}' "
+            f"with {len(new_lines)} new line(s). Run `git diff HEAD` to review.")
+
+def insert_lines(path: str, after_line: int, content: str) -> str:
+    """
+    Inserts `content` after line `after_line` (0 = top of file).
+    Generic version of insert_function — any file, any content.
+    """
+    logger.info("insert_lines('%s', after_line=%d)", path, after_line)
+    ensure_git_initialized()
+    resolved = validate_path(path)
+
+    if is_env_file(resolved):
+        return f"Access Denied: '{path}' is an environment/secrets file."
+    if not resolved.exists():
+        return f"Error: '{path}' does not exist."
+
+    try:
+        lines = resolved.read_text(encoding="utf-8").splitlines()
+    except Exception as exc:
+        return f"Error reading '{path}': {exc}"
+
+    total = len(lines)
+    if after_line < 0 or after_line > total:
+        return f"Error: after_line={after_line} is out of range (file has {total} lines)."
+
+    new_lines = content.splitlines()
+    updated = lines[:after_line] + new_lines + lines[after_line:]
+
+    try:
+        resolved.write_text("\n".join(updated) + "\n", encoding="utf-8")
+        _git_stage(resolved)
+    except Exception as exc:
+        logger.error("insert_lines('%s'): %s", path, exc)
+        return f"Error writing '{path}': {exc}"
+
+    return (f"✓ Inserted {len(new_lines)} line(s) after line {after_line} in '{path}'. "
+            f"Run `git diff HEAD` to review.")
+
+
+def delete_lines(path: str, start_line: int, end_line: int) -> str:
+    """
+    Deletes lines start_line..end_line (1-indexed, inclusive).
+
+    SAFETY: before deleting, commits a git checkpoint of the file's
+    CURRENT state — even uncommitted changes get saved first. Deleted
+    lines are always recoverable via revert_file(path) or `git log -- path`.
+    """
+    logger.info("delete_lines('%s', %d, %d)", path, start_line, end_line)
+    ensure_git_initialized()
+    resolved = validate_path(path)
+
+    if is_env_file(resolved):
+        return f"Access Denied: '{path}' is an environment/secrets file."
+    if not resolved.exists():
+        return f"Error: '{path}' does not exist."
+
+    try:
+        lines = resolved.read_text(encoding="utf-8").splitlines()
+    except Exception as exc:
+        return f"Error reading '{path}': {exc}"
+
+    total = len(lines)
+    if start_line < 1 or end_line < start_line or start_line > total:
+        return f"Error: invalid range {start_line}-{end_line} (file has {total} lines)."
+
+    # ── Checkpoint BEFORE deleting — yehi hai git-backup ──────────── #
+    try:
+        subprocess.run(["git", "add", str(resolved)], cwd=CWD,
+                        capture_output=True, text=True, check=False)
+        subprocess.run(
+            ["git", "commit", "-m", f"Checkpoint before delete_lines on {path}"],
+            cwd=CWD, capture_output=True, text=True, check=False,
+        )  # check=False rakha — agar commit karne ko kuch naya nahi hai to yeh fail hoga, harmlessly
+    except Exception as exc:
+        logger.warning("delete_lines checkpoint commit skipped: %s", exc)
+
+    removed = lines[start_line - 1 : end_line]
+    updated = lines[: start_line - 1] + lines[end_line:]
+
+    try:
+        resolved.write_text("\n".join(updated) + "\n", encoding="utf-8")
+        _git_stage(resolved)
+    except Exception as exc:
+        logger.error("delete_lines('%s'): %s", path, exc)
+        return f"Error writing '{path}': {exc}"
+
+    return (f"✓ Deleted {len(removed)} line(s) ({start_line}-{end_line}) from '{path}'. "
+            f"A git checkpoint was committed before deletion — run revert_file('{path}') anytime to undo.")
+
+def run_tests(path: str = ".", command: str | None = None) -> str:
+    """
+    Runs the test suite. If `command` is given, it's blocklist-validated
+    and run as-is. Otherwise auto-detects pytest or `npm test`.
+    """
+    logger.info("run_tests(path='%s', command=%r)", path, command)
+    root = validate_path(path)
+    if not root.exists() or not root.is_dir():
+        return f"Error: '{path}' is not a valid directory."
+
+    if command is None:
+        has_pytest_files = any(
+            f.name.startswith("test_") or f.name.endswith("_test.py")
+            for f in _iter_project_files(root) if f.suffix == ".py"
+        )
+        if has_pytest_files or (root / "pytest.ini").exists() or (root / "pyproject.toml").exists():
+            command = "python -m pytest"
+        else:
+            package_json = root / "package.json"
+            if package_json.exists():
+                try:
+                    data = json.loads(_read_text_safe(package_json) or "{}")
+                    if "test" in (data.get("scripts") or {}):
+                        command = "npm test"
+                except json.JSONDecodeError:
+                    pass
+
+    if command is None:
+        return f"No recognizable test setup found under '{path}'. Pass `command` explicitly."
+
+    try:
+        validate_command(command)
+    except ValueError as exc:
+        return str(exc)
+
+    try:
+        proc = subprocess.run(command, shell=True, cwd=root,
+                               capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        return f"Error: '{command}' timed out after 60s."
+    except Exception as exc:
+        return f"Error running tests: {exc}"
+
+    status = "PASSED" if proc.returncode == 0 else f"FAILED (exit code {proc.returncode})"
+    output = (proc.stdout or "") + (f"\nStderr:\n{proc.stderr}" if proc.stderr else "")
+    return f"Ran `{command}` — {status}\n\n{output.strip()}"
+
+
+def lint_file(path: str) -> str:
+    """
+    Runs ruff/flake8 (.py) or eslint (.js/.ts) if installed.
+    Returns a friendly message instead of erroring if none found.
+    """
+    logger.info("lint_file('%s')", path)
+    resolved = validate_path(path)
+    if is_env_file(resolved):
+        return f"Access Denied: '{path}' is an environment/secrets file."
+    if not resolved.exists():
+        return f"Error: '{path}' does not exist."
+
+    if resolved.suffix == ".py":
+        for tool in ("ruff", "flake8"):
+            if shutil.which(tool):
+                cmd = [tool, "check", str(resolved)] if tool == "ruff" else [tool, str(resolved)]
+                break
+        else:
+            return "No Python linter installed (tried ruff, flake8)."
+    elif resolved.suffix in (".js", ".ts", ".jsx", ".tsx"):
+        if not shutil.which("eslint"):
+            return "eslint is not installed."
+        cmd = ["eslint", str(resolved)]
+    else:
+        return f"No linter configured for '{resolved.suffix}' files."
+
+    try:
+        proc = subprocess.run(cmd, cwd=CWD, capture_output=True, text=True, timeout=15)
+    except subprocess.TimeoutExpired:
+        return "Error: linter timed out."
+    except Exception as exc:
+        return f"Error running linter: {exc}"
+
+    output = (proc.stdout or "") + (proc.stderr or "")
+    return output.strip() if output.strip() else f"✓ No issues found in '{path}'."
+
+
+def revert_file(path: str) -> str:
+    """
+    Restores a file to its last committed state — the undo button for
+    write_file / replace_lines / delete_lines / insert_lines.
+    """
+    logger.info("revert_file('%s')", path)
+    ensure_git_initialized()
+    resolved = validate_path(path)
+    if is_env_file(resolved):
+        return f"Access Denied: '{path}' is an environment/secrets file."
+
+    try:
+        proc = subprocess.run(
+            ["git", "checkout", "HEAD", "--", str(resolved)],
+            cwd=CWD, capture_output=True, text=True, timeout=10,
+        )
+    except Exception as exc:
+        return f"Error reverting '{path}': {exc}"
+
+    if proc.returncode != 0:
+        return f"Error: git checkout failed: {proc.stderr.strip()}"
+    return f"✓ '{path}' reverted to last committed state."
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Dispatch registry for this module — merged into tools.TOOL_DISPATCH by agent.py
@@ -729,11 +1081,37 @@ EXTENDED_TOOL_DISPATCH = {
     "get_function_source":  get_function_source,
     "insert_function":      insert_function,
     "replace_function":     replace_function,
+
+    "read_file_chunk":      read_file_chunk,
+    "find_symbol":          find_symbol,
+    "find_references":      find_references,
+    "replace_lines":        replace_lines,
+    "insert_lines":         insert_lines,
+    "delete_lines":         delete_lines,
+    "run_tests":            run_tests,
+    "lint_file":            lint_file,
+    "revert_file":          revert_file,
+
 }
+
+from bhavai.config import CWD, logger
+
 
 
 if __name__ == "__main__":
-    print(search_code(
-        path=".",
-        query="mock_cwd"
-    ))
+    cwd = str(CWD) + "\make.py"
+    # print(cwd)
+    # print(search_code(
+    #     path=".",
+    #     query="mock_cwd"
+    # ))
+    # print(read_file_chunk(cwd, 1, 5))
+    # print(find_symbol("text", str(CWD)))
+    # print(find_symbol("text", (CWD)))
+    # print(find_references("cwd", "."))
+    # print(replace_lines("faltu.txt", 2, 2, "this is faltu new line added"))
+    # print(insert_lines("faltu.txt", 0, "# added at the very top"))
+    # print(delete_lines("faltu.txt", 3, 4))
+    # print(run_tests("."))
+    # print(lint_file("tools_extended.py"))
+    # print(revert_file("faltu.txt"))

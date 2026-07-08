@@ -349,13 +349,44 @@ def wake(action):
                 break
                 
             # Task Execution
-            if is_command or current_mode == AgentMode.PLAN:
-                # 1. Generate and confirm plan
-                folder_tree = get_folder_tree_string(CWD)
-                should_proceed, plan_steps = prompt_and_confirm_plan(user_input, folder_tree, console)
+            # if is_command or current_mode == AgentMode.PLAN:
+            #     # 1. Generate and confirm plan
+            #     folder_tree = get_folder_tree_string(CWD)
+            #     should_proceed, plan_steps = prompt_and_confirm_plan(user_input, folder_tree, console)
                 
-                # 2. Run agent loop if approved
-                if should_proceed:
+            #     # 2. Run agent loop if approved
+            #     if should_proceed:
+            #         console.print("[bold green]Plan approved. Executing step-by-step...[/bold green]")
+            #         run_agent_loop(
+            #             user_input=user_input,
+            #             memory=memory,
+            #             current_mode=current_mode,
+            #             plan_steps=plan_steps,
+            #             console=console
+            #         )
+
+            if is_command or current_mode == AgentMode.PLAN:
+                folder_tree = get_folder_tree_string(CWD)
+                feedback = None
+                plan_steps = None
+
+                # Loop: generate → show → confirm/feedback → regenerate if needed
+                while True:
+                    plan_steps = prompt_and_confirm_plan(user_input, folder_tree, console, feedback)
+                    ans = console.input(
+                        "[bold yellow]Proceed?[/bold yellow] (y / n / type feedback to edit plan) > "
+                    ).strip()
+
+                    if ans.lower() == "y":
+                        break
+                    elif ans.lower() in ("n", "no", ""):
+                        plan_steps = None
+                        break
+                    else:
+                        feedback = ans
+                        console.print(f"[blue]Regenerating plan with feedback: '{feedback}'...[/blue]")
+
+                if plan_steps:
                     console.print("[bold green]Plan approved. Executing step-by-step...[/bold green]")
                     run_agent_loop(
                         user_input=user_input,
@@ -364,6 +395,10 @@ def wake(action):
                         plan_steps=plan_steps,
                         console=console
                     )
+                else:
+                    console.print("[yellow]Plan execution cancelled.[/yellow]")
+
+
             else: # Agent Mode (autonomous execution)
                 console.print("[bold yellow]Executing task autonomously...[/bold yellow]")
                 run_agent_loop(

@@ -552,7 +552,8 @@ def run_agent_loop(
         console.print(Panel(
             # str(result),
             str(text_to_be_displayed_inside_console),
-            title=f"[bold]🔍 Observation — {tool_name}[/bold] - {tool_args['path']}",
+            title=f"[bold]🔍 Observation — {tool_name}[/bold] ",
+            # title=f"[bold]🔍 Observation — {tool_name}[/bold] - {tool_args['path']}",
             title_align="left",
             border_style="blue",
         ))
@@ -564,17 +565,17 @@ def run_agent_loop(
         
 
 
-        from bhavai.core.messages import get_last_n_tools
-        last_3_tools = get_last_n_tools(messages)
-        if last_3_tools == [
-            "read_file",
-            "read_file",
-            "read_file"
-        ]:
-            memory.add_message(
-                "system",
-                "The file is empty. Stop reading it again. Proceed with creating new content."
-            )
+        # from bhavai.core.messages import get_last_n_tools
+        # last_3_tools = get_last_n_tools(messages)
+        # if last_3_tools == [
+        #     "read_file",
+        #     "read_file",
+        #     "read_file"
+        # ]:
+        #     memory.add_message(
+        #         "system",
+        #         "The file is empty. Stop reading it again. Proceed with creating new content."
+        #     )
 
     timeout_msg = (f"ReAct loop hit {max_steps}-step limit. "
                    "Task may be incomplete — try a more specific request.")

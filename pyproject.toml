@@ -14,6 +14,8 @@ dependencies = [
     "rich>=13.0.0",
     "python-dotenv>=1.0.0",
     "httpx>=0.24.0",
+    "plyer>=2.1.0",
+    
 ]
 
 [project.optional-dependencies]

@@ -19,7 +19,7 @@ from bhavai.config import get_config_summary, CWD, logger
 from bhavai.context import get_folder_tree_string
 from bhavai.memory import ConversationMemory
 from bhavai.modes import AgentMode, prompt_and_confirm_plan
-from bhavai.agent import run_agent_loop
+from bhavai.agent import run_agent_loop_plan, run_agent_loop_autonomous
 
 import getpass
 import time
@@ -107,13 +107,22 @@ def main(ctx, show_help):
 @click.argument("action", default="up")
 def wake(action):
     """Activates the agent in the current working directory."""
+
+    
+
     if action != "up":
         console.print(f"[bold red]Error:[/bold red] Invalid action '{action}'. Did you mean [green]bhav wake up[/green]?")
         sys.exit(1)
 
     
-        
-    # Load configuration
+    # for first time setup
+    # it create empty .bhavai folder in home directory
+    BhavAI_dot_folder = Path.home() / ".bhavai"
+    if not BhavAI_dot_folder.exists():
+        BhavAI_dot_folder.mkdir()
+
+
+    # it loads the config related configuration
     cfg = get_config_summary()
     
     # Check for API key
@@ -388,7 +397,7 @@ def wake(action):
 
                 if plan_steps:
                     console.print("[bold green]Plan approved. Executing step-by-step...[/bold green]")
-                    run_agent_loop(
+                    run_agent_loop_plan(
                         user_input=user_input,
                         memory=memory,
                         current_mode=current_mode,
@@ -401,7 +410,7 @@ def wake(action):
 
             else: # Agent Mode (autonomous execution)
                 console.print("[bold yellow]Executing task autonomously...[/bold yellow]")
-                run_agent_loop(
+                run_agent_loop_autonomous(
                     user_input=user_input,
                     memory=memory,
                     current_mode=current_mode,

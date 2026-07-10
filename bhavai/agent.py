@@ -27,6 +27,8 @@ import json
 import re
 from rich.console import Console
 from rich.panel import Panel
+from plyer import notification
+
 from bhavai.config import CWD, logger
 from bhavai.context import get_folder_tree_string
 from bhavai.llm import query_llm_with_continuation   # ← NEW: use continuation
@@ -382,10 +384,209 @@ def _fmt_args(args: dict) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Main ReAct Loop
+# Main ReAct Loop Planning
 # ─────────────────────────────────────────────────────────────────────────────
 
-def run_agent_loop(
+
+def run_agent_loop_plan(
+    user_input:   str,
+    memory:       ConversationMemory,
+    current_mode: str,
+    plan_steps:   list = None,
+    max_steps:    int  = 30,
+    console:      Console = None,
+) -> str:
+    """
+    Executes the ReAct (Reason → Act → Observe) loop.
+
+    Key change from v1
+    ------------------
+    Uses query_llm_with_continuation() instead of query_llm().
+    If the LLM hits the 4096-token wall mid-response, the continuation
+    loop in llm.py automatically fetches the rest and stitches it together
+    BEFORE we attempt JSON parsing. This means the JSON repair pipeline
+    (Layer 4) now only needs to handle edge cases, not the common case.
+    """
+    # if console is None:
+    #     console = Console()
+
+    task_prompt = user_input
+    if plan_steps:
+        steps_str   = "\n".join(f"  {i+1}. {s}" for i, s in enumerate(plan_steps))
+        task_prompt = (
+            f"Task: {user_input}\n\n"
+            f"Approved plan:\n{steps_str}\n\n"
+            "REMINDER: For any file > 50 lines use append_chunk (≤50 lines per call)."
+        )
+
+    memory.add_message("user", task_prompt)
+
+    step_count            = 0
+    consecutive_json_errs = 0
+    calls = 0
+    while step_count < max_steps:
+        step_count += 1
+        logger.info("ReAct step %d/%d", step_count, max_steps)
+
+        folder_tree   = get_folder_tree_string(CWD)
+        project_context_block = _build_project_context_block(CWD)
+
+        system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
+            cwd=str(CWD),
+            project_context_block=project_context_block,
+            folder_tree=folder_tree,
+            skills_block=discover_skills_from_dot_bhavai(CWD),
+        )
+        # logger.debug("SYSTEM PROMPT:\n%s", system_prompt)
+        # print("system prompt : ", system_prompt)
+
+        raw_response = ""
+        with console.status("[bold blue]Thinking…[/bold blue]", spinner="dots"):
+            try:
+                messages     = memory.get_messages(system_prompt)
+                # print("messages", messages)
+                # ── KEY CHANGE: continuation instead of single-shot ──────── #
+                # raw_response = query_llm_with_continuation(messages)
+                raw_response = query_llm_with_continuation(messages, calls=calls % 4)
+            except Exception as exc:
+                err = f"LLM Error: {exc}"
+                console.print(f"[bold red]{err}[/bold red]")
+                logger.error(err)
+                return err
+
+        if not raw_response:
+            err = "LLM returned an empty response. Please try again."
+            console.print(f"[bold red]{err}[/bold red]")
+            logger.error(err)
+            return err
+
+        try:
+            parsed = parse_llm_json(raw_response)
+            consecutive_json_errs = 0
+        except ValueError as exc:
+            consecutive_json_errs += 1
+            explanation = str(exc)
+            console.print(
+                f"[bold red]JSON Parse Error "
+                f"({consecutive_json_errs}/3):[/bold red] {explanation}"
+            )
+            logger.warning("Malformed JSON step %d: %r", step_count, raw_response[:300])
+
+            if consecutive_json_errs >= 3:
+                msg = ("Aborting: 3 consecutive JSON errors. "
+                       "Try a simpler task or break it into smaller steps.")
+                console.print(f"[bold red]{msg}[/bold red]")
+                return msg
+
+            memory.add_message("assistant", raw_response)
+            memory.add_message(
+                "user",
+                f"ERROR: Your response could not be parsed as JSON.\n"
+                f"Reason: {explanation}\n\n"
+                f"This almost always means your response was cut off at the 4096-token limit.\n"
+                f"ACTION REQUIRED:\n"
+                f"  • Do NOT retry the same large write_file call.\n"
+                f"  • Use append_chunk instead with ≤50 lines per chunk.\n"
+                f"  • First chunk: append_chunk path=... chunk='<lines 1-50>' done=false\n"
+                f"  • Continue until the file is complete, then set done=true.\n"
+                f"Reply with a valid JSON object following the response schema."
+            )
+            continue
+
+        thought   = parsed.get("thought", "")
+        tool_name = parsed.get("tool_name", "")
+        tool_args = parsed.get("tool_args", {})
+
+        if thought:
+            console.print(Panel(
+                f"[dim italic]{thought}[/dim italic]",
+                title="[bold]💭 BhavAI Thought[/bold]",
+                title_align="left",
+                border_style="dim",
+            ))
+
+        if not tool_name:
+            memory.add_message("assistant", raw_response)
+            memory.add_message("user",
+                "Error: 'tool_name' is missing from your JSON. "
+                "Please include it in your next response.")
+            continue
+
+        if tool_name == "final_answer":
+            answer = tool_args.get("answer", "Task complete.")
+            console.print("\n[bold green]✅ BhavAI Final Answer:[/bold green]")
+            console.print(answer)
+            console.print()
+            memory.add_message("assistant", raw_response)
+            return answer
+
+        if tool_name in TOOL_DISPATCH:
+            tool_func    = TOOL_DISPATCH[tool_name]
+            args_display = _fmt_args(tool_args)
+            notification.notify(
+                title="BhavAI is Asking For Permission",
+                message=f"type y for yes or no for denied\n {tool_name}{args_display}",
+                app_name="BhavAI",
+                timeout=20 # seconds
+            )
+            console.print(f"\n[bold yellow] Run {tool_name}({args_display}) (y/n): [/bold yellow]")
+            user_answer = input().strip().lower()
+
+            if user_answer == "n":
+                result = f"User declined to run '{tool_name}'. Skipped."
+                console.print(f"[yellow]✗ Skipped {tool_name} (user declined)[/yellow]")
+                memory.add_message("assistant", raw_response)
+                memory.add_message("system", f"Observation from {tool_name}:\n{result}")
+                calls += 1
+                continue
+
+            if user_answer == "exit":
+                return
+            
+            with console.status(
+                f"[bold blue][TOOL][/bold blue] "
+                f"[bold green]{tool_name}[/bold green]({args_display})…",
+                spinner="dots"
+            ):
+                try:
+                    result = tool_func(**tool_args) if isinstance(tool_args, dict) else tool_func()
+                except Exception as exc:
+                    result = f"Tool error — {tool_name}: {exc}"
+                    logger.error("Tool crash %s: %s", tool_name, exc)
+        else:
+            result = (f"Error: Unknown tool '{tool_name}'. "
+                      f"Available: {list(TOOL_DISPATCH.keys())}")
+            logger.warning("Unknown tool: %s", tool_name)
+
+        text_to_be_displayed_inside_console = result[:100]
+        console.print(Panel(
+            # str(result),
+            str(text_to_be_displayed_inside_console),
+            title=f"[bold]🔍 Observation — {tool_name}[/bold] ",
+            # title=f"[bold]🔍 Observation — {tool_name}[/bold] - {tool_args['path']}",
+            title_align="left",
+            border_style="blue",
+        ))
+
+        memory.add_message("assistant", raw_response)
+        memory.add_message("system", f"Observation from {tool_name}:\n{result}")
+
+        calls = calls + 1
+        
+
+
+
+    timeout_msg = (f"ReAct loop hit {max_steps}-step limit. "
+                   "Task may be incomplete — try a more specific request.")
+    console.print(f"[bold red]⚠  {timeout_msg}[/bold red]")
+    return timeout_msg
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Main ReAct Loop Autonomous
+# ─────────────────────────────────────────────────────────────────────────────
+
+def run_agent_loop_autonomous(
     user_input:   str,
     memory:       ConversationMemory,
     current_mode: str,
@@ -562,8 +763,6 @@ def run_agent_loop(
         memory.add_message("system", f"Observation from {tool_name}:\n{result}")
 
         calls = calls + 1
-        
-
 
         # from bhavai.core.messages import get_last_n_tools
         # last_3_tools = get_last_n_tools(messages)

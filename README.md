@@ -1,4 +1,4 @@
-<img width="900" height="506" alt="demo" src="assets/demo.gif"/>
+<img width="900" height="506" alt="demo" src="assets/demo.gif">
 
 
 BhavAI is a production-ready, lightweight, personal terminal AI agent powered exclusively by the **Sarvam-105B LLM API**. It operates directly within your current working directory, following a robust **Reason → Act → Observe** (ReAct) loop to solve complex tasks.

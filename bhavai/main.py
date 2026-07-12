@@ -7,13 +7,11 @@ bhav wake up
 ```
 in terminal to use this project
 """
-import threading
 import click
 import sys
 from pathlib import Path
 from rich.console import Console
 from rich.panel import Panel
-# from rich.prompt import Prompt
 
 from bhavai.config import get_config_summary, CWD, logger
 from bhavai.context import get_folder_tree_string
@@ -23,6 +21,9 @@ from bhavai.agent import run_agent_loop_plan, run_agent_loop_autonomous
 
 import getpass
 import time
+import webbrowser
+import random
+
 
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit import prompt
@@ -32,7 +33,6 @@ from prompt_toolkit import PromptSession
 from bhavai.scripts.initialize_markdown import generate_bhavai_md
 from bhavai.updater.updates import show_update_message
 
-import random
 
 lists = [
     "💭 Do you know run /export command can export your entire session into .bhavai/memories/<NAME>.md",
@@ -43,6 +43,8 @@ lists = [
     "💭 Do you know run bhav --help tell you about the BhavAI project",
     "💭 Do you know run bhav dev opens your browswer so that you can manage your config related keys",
     "💭 Do you know you can add your own custom skill in .bhavai/skills/<SKILL_NAME>/SKILL.md",
+    "💭 Do you know plan mode ask you for every permission",
+
         ]
 
 do_you_know = random.choice(lists)
@@ -84,12 +86,14 @@ def main(ctx, show_help):
   [cyan]! python app.py[/cyan]
   [cyan]/push[/cyan]
 
-[yellow]🥷  Slash Commands[/yellow]
+[yellow]🥷  bSlash Commands [/yellow]
   [cyan]/<COMMANDL_NAME>[/cyan]
   
 """,
                 title="BhavAI Help",
+                subtitle="[dim]type 'bhav wake up' to begin[/dim]",
                 border_style="bright_blue",
+                padding=(1, 3),
             )
         )
         ctx.exit()
@@ -222,6 +226,8 @@ def wake(action):
         buf = session.default_buffer.text
         if buf.startswith("!"):
             return HTML('<ansired><b>(bash)</b></ansired> > ')
+        if buf.startswith("/"):
+            return HTML('<ansiyellow><b>(command)</b></ansiyellow> > ')
         if current_mode == AgentMode.PLAN:
             return HTML('<ansicyan><b>(plan)</b></ansicyan> > ')
         else:
@@ -522,6 +528,17 @@ def dev():
                 except subprocess.TimeoutExpired:
                     proc.kill()
         click.echo("Stopped.")
+
+
+@main.command()
+def update():
+    """
+    update the current version
+    it redirect user to my official github repo of BhavAI so that user can download latest version
+    """
+    webbrowser.open("https://github.com/BhavneeshBanga/Terminal-agent")
+    
+
 
 
 if __name__ == "__main__":

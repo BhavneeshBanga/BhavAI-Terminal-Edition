@@ -73,22 +73,53 @@ Within the session, you can run prompts or commands:
 ## 🏗️ Architecture
 
 ```
-bhavai/
-├── pyproject.toml          # Package configuration & global entry point
-├── .env.example            # Environment variables template
-├── README.md               # User documentation
-├── bhavai/
-│   ├── __init__.py         # Package initialization
-│   ├── main.py             # Click CLI & interactive REPL entry point
-│   ├── config.py           # Configuration loader & logger
-│   ├── context.py          # Gitignore-aware folder tree builder
-│   ├── memory.py           # In-session conversation history
-│   ├── tools.py            # Sandboxed & blocklist-validated tools
-│   ├── llm.py              # HTTPX client for Sarvam API with retries
-│   ├── modes.py            # Plan vs Agent mode logic
-│   └── agent.py            # Core ReAct loop runner
-└── tests/
-    └── test_tools.py       # Pytest unit tests for tools
+BhavAI Terminal Edition
+│
+├── 📁 assets
+│   ├── 🖼️ demo.gif
+│   └── 🎨 palette.png
+│
+├── 📁 bhavai
+│   ├── 📁 core
+│   │   └── 💬 messages.py               # Shared messages & prompts
+│   │
+│   ├── 📁 scripts
+│   │   └── 📄 initialize_markdown.py
+│   │
+│   ├── 📁 updater
+│   │   └── 🔄 updates.py
+│   │
+│   ├── 📄 __init__.py                  # Package initialization
+│   ├── 🤖 agent.py                     # Core ReAct loop runner
+│   ├── 🌐 api.py                       # API utilities
+│   ├── ⚙️ config.py                    # Configuration & logger
+│   ├── 📋 config_schema.py             # Configuration schema
+│   ├── 🌲 context.py                   # Gitignore-aware context builder
+│   ├── 🚀 main.py                      # CLI entry point & interactive REPL
+│   ├── 🧠 memory.py                    # Session conversation memory
+│   ├── 🎯 modes.py                     # Plan / Agent mode logic
+│   ├── 🔧 settings_router.py           # Settings router
+│   ├── 🛠️ skill_getter.py              # Skill loader
+│   ├── 🧩 skills_router.py             # Skill router
+│   ├── 🧪 test_tools_extended.py       # Extended tool tests
+│   ├── 🔨 tools.py                     # Core sandboxed tools
+│   ├── ⚡ llm.py                       # Sarvam & Groq LLM interface
+│   ├── 🧰 tools_extended.py            # Additional tools
+│   └── 💻 tui.py                       # Terminal UI
+│
+├── 📁 tests
+│   └── 🧪 test_tools.py
+│
+├── 🚫 .gitignore
+├── 📘 BHAVAI.md
+├── 🎬 demo.gif
+├── 📜 LICENSE.md
+├── ⚒️ make.py
+├── 🔑 .env.example                     # Environment variables template
+├── 🎨 palette.png
+├── 📦 pyproject.toml                   # Package configuration
+├── 📖 README.md                        # Project documentation
+└── 🚶 WALKTHROUGH.md                   # Getting started guide
 ```
 
 ---

@@ -1,69 +1,96 @@
-# BhavAI Proprietary License
+# BhavAI Community License v1.0
 
 **Copyright © 2026 Bhavneesh Banga. All Rights Reserved.**
 
-## Ownership
+---
 
-BhavAI, including but not limited to its source code, architecture, algorithms, workflows, prompts, documentation, assets, branding, logos, and related materials, is the exclusive intellectual property of **Bhavneesh Banga**.
+## 1. Overview
 
-All rights not expressly granted under this license are reserved.
+Thank you for using **BhavAI**.
+
+This software is proprietary software developed and owned by **Bhavneesh Banga**.
+
+This license allows you to download, install, and use BhavAI, but it does **not** grant ownership of the software or its source code.
 
 ---
 
-## License Grant
+## 2. Permitted Use
 
-No license or ownership rights are granted to any individual or organization unless explicitly provided in writing by the copyright owner.
+Subject to this license, you may:
 
-Viewing this repository or obtaining a copy of the software does **not** grant permission to use, modify, distribute, or commercialize any part of the project.
-
----
-
-## Restrictions
-
-Without prior written permission from the copyright owner, you may **NOT**:
-
-* Copy, reproduce, or redistribute any portion of the software.
-* Modify, adapt, translate, or create derivative works.
-* Reverse engineer, decompile, or attempt to extract proprietary logic.
-* Use the source code or any substantial portion of it in personal, academic, commercial, or production projects.
-* Sell, lease, sublicense, or commercially exploit the software.
-* Remove or modify copyright notices or ownership information.
-* Publish the source code or any modified version publicly.
-* Use BhavAI branding, logos, or trademarks without authorization.
+* Download and install BhavAI.
+* Use BhavAI for personal, educational, research, or business purposes.
+* Receive updates released by the author.
+* Share official download links to BhavAI.
 
 ---
 
-## Commercial Licensing
+## 3. Restrictions
 
-Organizations or individuals interested in using BhavAI for commercial purposes must obtain a separate written commercial license from the copyright owner.
+Unless you have prior written permission from the copyright owner, you may **NOT**:
 
----
-
-## No Warranty
-
-This software is provided solely by the copyright owner.
-
-To the maximum extent permitted by law, the software is provided **"AS IS"**, without any express or implied warranties, including but not limited to warranties of merchantability, fitness for a particular purpose, or non-infringement.
-
-The copyright owner shall not be liable for any damages, losses, claims, or liabilities arising from the use or inability to use this software.
-
----
-
-## Reservation of Rights
-
-The copyright owner reserves the right to:
-
-* Update or modify this license at any time.
-* Change licensing terms for future releases.
-* Offer separate commercial or enterprise licenses.
-* Grant exceptions through written permission.
+* Copy or redistribute the source code.
+* Modify or create derivative works.
+* Reverse engineer, decompile, or disassemble the software where prohibited by applicable law.
+* Publish the source code or any modified version.
+* Sell, rent, sublicense, or commercially redistribute BhavAI.
+* Remove or alter copyright notices.
+* Rebrand BhavAI or present it as your own software.
+* Use BhavAI's source code in another software project.
 
 ---
 
-## Contact
+## 4. Intellectual Property
 
-For licensing, partnership, commercial use, or permission requests, please contact:
+All rights, title, and interest in BhavAI, including its source code, architecture, prompts, AI agents, workflows, documentation, branding, logos, and related materials remain the exclusive property of **Bhavneesh Banga**.
+
+Nothing in this license transfers ownership of any intellectual property.
+
+---
+
+## 5. Updates
+
+The author may release updates, new versions, or discontinue the software at any time.
+
+Availability of future updates is not guaranteed.
+
+---
+
+## 6. Warranty Disclaimer
+
+BhavAI is provided **"AS IS"** without warranties of any kind, whether express or implied.
+
+The author shall not be liable for any direct, indirect, incidental, or consequential damages arising from the use of the software.
+
+---
+
+## 7. Termination
+
+This license automatically terminates if you violate any of its terms.
+
+Upon termination, you must immediately stop using BhavAI and destroy all copies in your possession.
+
+---
+
+## 8. Commercial Licensing
+
+If you wish to:
+
+* Integrate BhavAI into another product,
+* Redistribute BhavAI,
+* Modify the software,
+* Create commercial derivatives,
+
+you must obtain a separate written license from the copyright owner.
+
+---
+
+## 9. Contact
+
+For commercial licensing, partnerships, or permissions:
 
 **Bhavneesh Banga**
 
-All inquiries regarding licensing should be made in writing.
+---
+
+Thank you for supporting the development of BhavAI.

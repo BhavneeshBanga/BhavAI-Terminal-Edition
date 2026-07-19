@@ -9,13 +9,15 @@ description = "BhavAI - A personal terminal AI agent powered by Sarvam-105B API"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
+
 dependencies = [
     "click>=8.0.0",
     "rich>=13.0.0",
     "python-dotenv>=1.0.0",
     "httpx>=0.24.0",
     "plyer>=2.1.0",
-    
+    "prompt_toolkit>=3.0.0",
+    "requests>=2.31.0",
 ]
 
 [project.optional-dependencies]

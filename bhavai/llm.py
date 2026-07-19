@@ -96,177 +96,31 @@ def call_sarvam(messages: list[dict]) -> str:
 # Internal: single API call, returns (content, stop_reason)
 # ─────────────────────────────────────────────────────────────────────────────
 
-# def _call_api(messages: list, calls: int,  temperature: float = 0.0) -> tuple[str, str]:
-#     """
-#     Makes one call to the Sarvam chat completions endpoint.
-
-#     Returns
-#     -------
-#     (content, stop_reason)
-#         stop_reason is "end_turn" when the model finished naturally,
-#         or "max_tokens" when it hit the 4096-token limit mid-response.
-
-#     Raises RuntimeError on all non-recoverable errors (caller handles retry).
-#     """
-#     if not SARVAM_API_KEY:
-#         raise ValueError(
-#             "SARVAM_API_KEY is not set. "
-#             "Please add it to your .env file or environment variables."
-#         )
-
-#     url = f"{SARVAM_BASE_URL.rstrip('/')}/chat/completions"
-#     headers = {
-#         "api-subscription-key": SARVAM_API_KEY,
-#         "Content-Type": "application/json",
-#     }
-#     payload = {
-#         "model":       SARVAM_MODEL,
-#         "messages":    messages,
-#         "temperature": temperature,
-#         "max_tokens":  4096,
-#     }
-
-#     max_retries = 3
-#     delay       = 2.0
-#     last_error  = None
-
-#     for attempt in range(1, max_retries + 1):
-#         logger.debug(
-#             "Sarvam API request — attempt %d/%d  url=%s  model=%s",
-#             attempt, max_retries, url, SARVAM_MODEL,
-#         )
-
-#         try:
-#             with httpx.Client(timeout=90.0) as client:
-#                 response = client.post(url, json=payload, headers=headers)
-#                 # print("response", response)
-
-#             status = response.status_code
-
-#             if status == 200:
-#                 data = response.json()
-#                 # print("json response ", data)
-#                 try:
-#                     choice      = data["choices"][0]
-#                     content     = choice["message"]["content"]
-#                     # Sarvam follows OpenAI spec: finish_reason field
-#                     stop_reason = choice.get("finish_reason", "end_turn") or "end_turn"
-
-
-
-
-#                     # print("\n===== MODEL CONTENT =====")
-#                     # print(content)
-#                     # print("=========================\n")
-
-
-
-#                 except (KeyError, IndexError, TypeError) as exc:
-#                     raise RuntimeError(
-#                         f"Sarvam API returned 200 but structure is unexpected: "
-#                         f"{exc}. Raw: {str(data)[:300]}"
-#                     )
-
-#                 if not isinstance(content, str) or not content.strip():
-#                     raise RuntimeError(
-#                         "Sarvam API returned 200 but 'content' is empty or not a string."
-#                     )
-
-#                 logger.debug(
-#                     "Sarvam API success on attempt %d. stop_reason=%s",
-#                     attempt, stop_reason,
-#                 )
-#                 return content, stop_reason
-
-#             elif status in (429, 500, 502, 503, 504):
-#                 logger.warning(
-#                     "Sarvam API transient %d on attempt %d/%d — retrying in %.1f s…",
-#                     status, attempt, max_retries, delay,
-#                 )
-#                 last_error = RuntimeError(
-#                     f"Sarvam API transient error {status} after {attempt} attempt(s)."
-#                 )
-#                 time.sleep(delay)
-#                 delay *= 2.0
-#                 continue
-
-#             else:
-#                 raise RuntimeError(
-#                     f"Sarvam API non-retryable error {status}: {response.text[:300]}"
-#                 )
-
-#         except httpx.RequestError as exc:
-#             logger.warning(
-#                 "Sarvam API network error on attempt %d/%d: %s",
-#                 attempt, max_retries, exc,
-#             )
-#             last_error = RuntimeError(f"Sarvam API network error: {exc}")
-#             if attempt == max_retries:
-#                 break
-#             time.sleep(delay)
-#             delay *= 2.0
-#             continue
-
-#         except RuntimeError:
-#             raise
-
-#         except Exception as exc:
-#             raise RuntimeError(f"Unexpected error querying Sarvam API: {exc}") from exc
-
-#     raise last_error or RuntimeError(
-#         f"Sarvam API failed after {max_retries} attempts with no response."
-#     )
-
-def _call_api(messages: list,calls : int, temperature: float = 0.0) -> tuple[str, str]:
+def _call_api(messages: list, calls: int,  temperature: float = 0.0) -> tuple[str, str]:
     """
-    Makes one call to the Groq chat completions endpoint.
+    Makes one call to the Sarvam chat completions endpoint.
 
     Returns
     -------
     (content, stop_reason)
-        stop_reason is "stop" when the model finished naturally,
-        or "length" when it hit the token limit mid-response.
+        stop_reason is "end_turn" when the model finished naturally,
+        or "max_tokens" when it hit the 4096-token limit mid-response.
 
     Raises RuntimeError on all non-recoverable errors (caller handles retry).
     """
-    if not GROQ_API_KEY1:
+    if not SARVAM_API_KEY:
         raise ValueError(
-            "GROQ_API_KEY is not set. "
+            "SARVAM_API_KEY is not set. "
             "Please add it to your .env file or environment variables."
         )
 
-    url = f"{GROQ_BASE_URL.rstrip('/')}/chat/completions"
-
+    url = f"{SARVAM_BASE_URL.rstrip('/')}/chat/completions"
     headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY1}",
+        "api-subscription-key": SARVAM_API_KEY,
         "Content-Type": "application/json",
     }
-
-    if(calls ==0):
-        headers = {
-            "Authorization": f"Bearer {GROQ_API_KEY1}",
-            "Content-Type": "application/json",
-        }
-    if(calls ==1):
-        headers = {
-            "Authorization": f"Bearer {GROQ_API_KEY2}",
-            "Content-Type": "application/json",
-        }
-    if(calls ==2):
-        headers = {
-            "Authorization": f"Bearer {GROQ_API_KEY3}",
-            "Content-Type": "application/json",
-        }
-    if(calls ==3):
-        headers = {
-            "Authorization": f"Bearer {GROQ_API_KEY4}",
-            "Content-Type": "application/json",
-        }
-        
-        
-    
     payload = {
-        "model":       GROQ_MODEL,
+        "model":       SARVAM_MODEL,
         "messages":    messages,
         "temperature": temperature,
         "max_tokens":  4096,
@@ -278,8 +132,8 @@ def _call_api(messages: list,calls : int, temperature: float = 0.0) -> tuple[str
 
     for attempt in range(1, max_retries + 1):
         logger.debug(
-            "Groq API request — attempt %d/%d  url=%s  model=%s",
-            attempt, max_retries, url, GROQ_MODEL,
+            "Sarvam API request — attempt %d/%d  url=%s  model=%s",
+            attempt, max_retries, url, SARVAM_MODEL,
         )
 
         try:
@@ -292,40 +146,45 @@ def _call_api(messages: list,calls : int, temperature: float = 0.0) -> tuple[str
             if status == 200:
                 data = response.json()
                 # print("json response ", data)
-
                 try:
                     choice      = data["choices"][0]
                     content     = choice["message"]["content"]
-                    stop_reason = choice.get("finish_reason", "stop") or "stop"
+                    # Sarvam follows OpenAI spec: finish_reason field
+                    stop_reason = choice.get("finish_reason", "end_turn") or "end_turn"
+
+
+
 
                     # print("\n===== MODEL CONTENT =====")
                     # print(content)
                     # print("=========================\n")
 
+
+
                 except (KeyError, IndexError, TypeError) as exc:
                     raise RuntimeError(
-                        f"Groq API returned 200 but structure is unexpected: "
+                        f"Sarvam API returned 200 but structure is unexpected: "
                         f"{exc}. Raw: {str(data)[:300]}"
                     )
 
                 if not isinstance(content, str) or not content.strip():
                     raise RuntimeError(
-                        "Groq API returned 200 but 'content' is empty or not a string."
+                        "Sarvam API returned 200 but 'content' is empty or not a string."
                     )
 
                 logger.debug(
-                    "Groq API success on attempt %d. stop_reason=%s",
+                    "Sarvam API success on attempt %d. stop_reason=%s",
                     attempt, stop_reason,
                 )
                 return content, stop_reason
 
             elif status in (429, 500, 502, 503, 504):
                 logger.warning(
-                    "Groq API transient %d on attempt %d/%d — retrying in %.1f s…",
+                    "Sarvam API transient %d on attempt %d/%d — retrying in %.1f s…",
                     status, attempt, max_retries, delay,
                 )
                 last_error = RuntimeError(
-                    f"Groq API transient error {status} after {attempt} attempt(s)."
+                    f"Sarvam API transient error {status} after {attempt} attempt(s)."
                 )
                 time.sleep(delay)
                 delay *= 2.0
@@ -333,19 +192,17 @@ def _call_api(messages: list,calls : int, temperature: float = 0.0) -> tuple[str
 
             else:
                 raise RuntimeError(
-                    f"Groq API non-retryable error {status}: {response.text[:300]}"
+                    f"Sarvam API non-retryable error {status}: {response.text[:300]}"
                 )
 
         except httpx.RequestError as exc:
             logger.warning(
-                "Groq API network error on attempt %d/%d: %s",
+                "Sarvam API network error on attempt %d/%d: %s",
                 attempt, max_retries, exc,
             )
-            last_error = RuntimeError(f"Groq API network error: {exc}")
-
+            last_error = RuntimeError(f"Sarvam API network error: {exc}")
             if attempt == max_retries:
                 break
-
             time.sleep(delay)
             delay *= 2.0
             continue
@@ -354,11 +211,154 @@ def _call_api(messages: list,calls : int, temperature: float = 0.0) -> tuple[str
             raise
 
         except Exception as exc:
-            raise RuntimeError(f"Unexpected error querying Groq API: {exc}") from exc
+            raise RuntimeError(f"Unexpected error querying Sarvam API: {exc}") from exc
 
     raise last_error or RuntimeError(
-        f"Groq API failed after {max_retries} attempts with no response."
+        f"Sarvam API failed after {max_retries} attempts with no response."
     )
+
+# def _call_api(messages: list,calls : int, temperature: float = 0.0) -> tuple[str, str]:
+#     """
+#     Makes one call to the Groq chat completions endpoint.
+
+#     Returns
+#     -------
+#     (content, stop_reason)
+#         stop_reason is "stop" when the model finished naturally,
+#         or "length" when it hit the token limit mid-response.
+
+#     Raises RuntimeError on all non-recoverable errors (caller handles retry).
+#     """
+#     if not GROQ_API_KEY1:
+#         raise ValueError(
+#             "GROQ_API_KEY is not set. "
+#             "Please add it to your .env file or environment variables."
+#         )
+
+#     url = f"{GROQ_BASE_URL.rstrip('/')}/chat/completions"
+
+#     headers = {
+#         "Authorization": f"Bearer {GROQ_API_KEY1}",
+#         "Content-Type": "application/json",
+#     }
+
+#     if(calls ==0):
+#         headers = {
+#             "Authorization": f"Bearer {GROQ_API_KEY1}",
+#             "Content-Type": "application/json",
+#         }
+#     if(calls ==1):
+#         headers = {
+#             "Authorization": f"Bearer {GROQ_API_KEY2}",
+#             "Content-Type": "application/json",
+#         }
+#     if(calls ==2):
+#         headers = {
+#             "Authorization": f"Bearer {GROQ_API_KEY3}",
+#             "Content-Type": "application/json",
+#         }
+#     if(calls ==3):
+#         headers = {
+#             "Authorization": f"Bearer {GROQ_API_KEY4}",
+#             "Content-Type": "application/json",
+#         }
+        
+        
+    
+#     payload = {
+#         "model":       GROQ_MODEL,
+#         "messages":    messages,
+#         "temperature": temperature,
+#         "max_tokens":  4096,
+#     }
+
+#     max_retries = 3
+#     delay       = 2.0
+#     last_error  = None
+
+#     for attempt in range(1, max_retries + 1):
+#         logger.debug(
+#             "Groq API request — attempt %d/%d  url=%s  model=%s",
+#             attempt, max_retries, url, GROQ_MODEL,
+#         )
+
+#         try:
+#             with httpx.Client(timeout=90.0) as client:
+#                 response = client.post(url, json=payload, headers=headers)
+#                 # print("response", response)
+
+#             status = response.status_code
+
+#             if status == 200:
+#                 data = response.json()
+#                 # print("json response ", data)
+
+#                 try:
+#                     choice      = data["choices"][0]
+#                     content     = choice["message"]["content"]
+#                     stop_reason = choice.get("finish_reason", "stop") or "stop"
+
+#                     # print("\n===== MODEL CONTENT =====")
+#                     # print(content)
+#                     # print("=========================\n")
+
+#                 except (KeyError, IndexError, TypeError) as exc:
+#                     raise RuntimeError(
+#                         f"Groq API returned 200 but structure is unexpected: "
+#                         f"{exc}. Raw: {str(data)[:300]}"
+#                     )
+
+#                 if not isinstance(content, str) or not content.strip():
+#                     raise RuntimeError(
+#                         "Groq API returned 200 but 'content' is empty or not a string."
+#                     )
+
+#                 logger.debug(
+#                     "Groq API success on attempt %d. stop_reason=%s",
+#                     attempt, stop_reason,
+#                 )
+#                 return content, stop_reason
+
+#             elif status in (429, 500, 502, 503, 504):
+#                 logger.warning(
+#                     "Groq API transient %d on attempt %d/%d — retrying in %.1f s…",
+#                     status, attempt, max_retries, delay,
+#                 )
+#                 last_error = RuntimeError(
+#                     f"Groq API transient error {status} after {attempt} attempt(s)."
+#                 )
+#                 time.sleep(delay)
+#                 delay *= 2.0
+#                 continue
+
+#             else:
+#                 raise RuntimeError(
+#                     f"Groq API non-retryable error {status}: {response.text[:300]}"
+#                 )
+
+#         except httpx.RequestError as exc:
+#             logger.warning(
+#                 "Groq API network error on attempt %d/%d: %s",
+#                 attempt, max_retries, exc,
+#             )
+#             last_error = RuntimeError(f"Groq API network error: {exc}")
+
+#             if attempt == max_retries:
+#                 break
+
+#             time.sleep(delay)
+#             delay *= 2.0
+#             continue
+
+#         except RuntimeError:
+#             raise
+
+#         except Exception as exc:
+#             raise RuntimeError(f"Unexpected error querying Groq API: {exc}") from exc
+
+#     raise last_error or RuntimeError(
+#         f"Groq API failed after {max_retries} attempts with no response."
+#     )
 
 
 # ─────────────────────────────────────────────────────────────────────────────

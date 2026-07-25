@@ -23,6 +23,8 @@ import getpass
 import time
 import webbrowser
 import random
+import shutil
+
 
 
 from prompt_toolkit.formatted_text import HTML
@@ -32,6 +34,7 @@ from prompt_toolkit import PromptSession
 
 from bhavai.scripts.initialize_markdown import generate_bhavai_md
 from bhavai.updater.updates import show_update_message
+from bhavai.banner.bhavai_agent import print_bhavai_agent
 
 
 lists = [
@@ -52,6 +55,10 @@ do_you_know = random.choice(lists)
 
 
 console = Console()
+
+# threshold_width_ = 180
+size = shutil.get_terminal_size()
+threshold_width_ = size.columns
 
 @click.group(invoke_without_command=True, add_help_option=False)
 @click.option("--help", "show_help", is_flag=True)
@@ -158,35 +165,36 @@ def wake(action):
     def clear():
         os.system("cls" if os.name == "nt" else "clear")
 
-    clear()
-    print(YEL + "▄" * 58 + R)
-    print()
-    # logo = [
-    # r" ██████╗ ██╗  ██╗ █████╗ ██╗   ██╗ █████╗ ██╗    ████████╗███████╗██████╗ ███╗   ███╗██╗███╗   ██╗ █████╗ ██╗",
-    # r" ██╔══██╗██║  ██║██╔══██╗██║   ██║██╔══██╗██║       ██╔══╝██╔════╝██╔══██╗████╗ ████║██║████╗  ██║██╔══██╗██║",
-    # r" ██████╔╝███████║███████║██║   ██║███████║██║       ██║   █████╗  ██████╔╝██╔████╔██║██║██╔██╗ ██║███████║██║",
-    # r" ██╔══██╗██╔══██║██╔══██║╚██╗ ██╔╝██╔══██║██║       ██║   ██╔══╝  ██╔══██╗██║╚██╔╝██║██║██║╚██╗██║██╔══██║██║",
-    # r" ██████╔╝██║  ██║██║  ██║ ╚████╔╝ ██║  ██║██║       ██║   ███████╗██║  ██║██║ ╚═╝ ██║██║██║ ╚████║██║  ██║███████╗",
-    # r" ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝  ╚═══╝  ╚═╝  ╚═╝╚═╝       ╚═╝   ╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝╚══════╝",
-    # ]
-    logo = [
-        r" ██████╗ ██╗  ██╗ █████╗ ██╗   ██╗ █████╗ ██╗    ████████╗███████╗██████╗ ███╗   ███╗██╗███╗   ██╗ █████╗ ██╗        █████╗  ██████╗ ███████╗███╗   ██╗████████╗",
-        r" ██╔══██╗██║  ██║██╔══██╗██║   ██║██╔══██╗██║       ██╔══╝██╔════╝██╔══██╗████╗ ████║██║████╗  ██║██╔══██╗██║       ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝",
-        r" ██████╔╝███████║███████║██║   ██║███████║██║       ██║   █████╗  ██████╔╝██╔████╔██║██║██╔██╗ ██║███████║██║       ███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║   ",
-        r" ██╔══██╗██╔══██║██╔══██║╚██╗ ██╔╝██╔══██║██║       ██║   ██╔══╝  ██╔══██╗██║╚██╔╝██║██║██║╚██╗██║██╔══██║██║       ██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║   ",
-        r" ██████╔╝██║  ██║██║  ██║ ╚████╔╝ ██║  ██║██║       ██║   ███████╗██║  ██║██║ ╚═╝ ██║██║██║ ╚████║██║  ██║██████╗   ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║   ",
-        r" ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝  ╚═══╝  ╚═╝  ╚═╝╚═╝       ╚═╝   ╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝╚═════╝   ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝   ",
-    ]
-    for line in logo:
-        print(GOLD + BOLD + line + R)
-    print()
-    username = getpass.getuser()
-    typewrite(f"  ⚡  Terminal Edition — {username} ke liye  ⚡", delay=0.022, color=GOLD + BOLD)
-    print(YEL + "▀" * 58 + R)
-    print()
+    def print_bhavai_terminal_agent():
+        
+        clear()
+        print(YEL + "▄" * 58 + R)
+        print()
+        logo = [
+            r" ██████╗ ██╗  ██╗ █████╗ ██╗   ██╗ █████╗ ██╗    ████████╗███████╗██████╗ ███╗   ███╗██╗███╗   ██╗ █████╗ ██╗        █████╗  ██████╗ ███████╗███╗   ██╗████████╗",
+            r" ██╔══██╗██║  ██║██╔══██╗██║   ██║██╔══██╗██║       ██╔══╝██╔════╝██╔══██╗████╗ ████║██║████╗  ██║██╔══██╗██║       ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝",
+            r" ██████╔╝███████║███████║██║   ██║███████║██║       ██║   █████╗  ██████╔╝██╔████╔██║██║██╔██╗ ██║███████║██║       ███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║   ",
+            r" ██╔══██╗██╔══██║██╔══██║╚██╗ ██╔╝██╔══██║██║       ██║   ██╔══╝  ██╔══██╗██║╚██╔╝██║██║██║╚██╗██║██╔══██║██║       ██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║   ",
+            r" ██████╔╝██║  ██║██║  ██║ ╚████╔╝ ██║  ██║██║       ██║   ███████╗██║  ██║██║ ╚═╝ ██║██║██║ ╚████║██║  ██║██████╗   ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║   ",
+            r" ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝  ╚═══╝  ╚═╝  ╚═╝╚═╝       ╚═╝   ╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝╚═════╝   ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝   ",
+        ]
+        for line in logo:
+            print(GOLD + BOLD + line + R)
+        print()
+        username = getpass.getuser()
+        typewrite(f"  ⚡  Terminal Edition — {username} ke liye  ⚡", delay=0.022, color=GOLD + BOLD)
+        print(YEL + "▀" * 58 + R)
+        print()
 
+    if(threshold_width_ > 160):
+        print_bhavai_terminal_agent()
+    elif(threshold_width_ > 94 and threshold_width_ < 160):
+        print(print_bhavai_agent())
+    else:
+        pass
+    
     banner_text = (
-        f"🚀[bold green]BhavAI Activated Successfully![/bold green]\n\n"
+        f"🚀 [bold green]BhavAI Activated Successfully![/bold green]\n\n"
         f"📍  [bold]Location:[/bold] {cfg['CWD']}\n"
         f"⚙️  [bold]Model:[/bold] {cfg['MODEL']}\n"
         f"🛡️  [bold]Initial Mode:[/bold] [bold cyan]Plan Mode[/bold cyan] (Default)\n"

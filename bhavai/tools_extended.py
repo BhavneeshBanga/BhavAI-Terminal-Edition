@@ -1099,7 +1099,7 @@ from bhavai.config import CWD, logger
 
 
 if __name__ == "__main__":
-    cwd = str(CWD) + "\make.py"
+    cwd = str(CWD) + "\\" + "make.py"
     # print(cwd)
     # print(search_code(
     #     path=".",

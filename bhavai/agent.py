@@ -23,6 +23,9 @@ This file implements a 5-layer defence (was 4 in v1):
              wrong and how to fix it before the next attempt.
 """
 
+
+from bhavai.ui.shimmer import ShimmerStatus
+
 import json
 import re
 from rich.console import Console
@@ -441,7 +444,8 @@ def run_agent_loop_plan(
         # print("system prompt : ", system_prompt)
 
         raw_response = ""
-        with console.status("[bold blue]Thinking…[/bold blue]", spinner="dots"):
+        # with console.status("[bold blue]Thinking…[/bold blue]", spinner="dots"):
+        with ShimmerStatus("Thinking…", color="blue"):
             try:
                 messages     = memory.get_messages(system_prompt)
                 # print("messages", messages)
@@ -639,7 +643,8 @@ def run_agent_loop_autonomous(
         # print("system prompt : ", system_prompt)
 
         raw_response = ""
-        with console.status("[bold blue]Thinking…[/bold blue]", spinner="dots"):
+        # with console.status("[bold blue]Thinking…[/bold blue]", spinner="dots"):
+        with ShimmerStatus("Thinking…", color="blue"):
             try:
                 messages     = memory.get_messages(system_prompt)
                 # print("messages", messages)

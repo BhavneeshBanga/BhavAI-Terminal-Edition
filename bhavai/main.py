@@ -25,6 +25,7 @@ import webbrowser
 import random
 import shutil
 
+from bhavai.ui.shimmer import ShimmerStatus
 
 
 from prompt_toolkit.formatted_text import HTML
@@ -422,7 +423,8 @@ def wake(action):
                 continue
             
             if low == "/init":
-                with console.status("[bold yellow]Generating BhavAI.md[/bold yellow]", spinner="dots"):
+                # with console.status("[bold yellow]Generating BhavAI.md[/bold yellow]", spinner="dots"):
+                with ShimmerStatus("Generating BhavAI.md", color="yellow"):
                 
                     try:
                         path = generate_bhavai_md(CWD)

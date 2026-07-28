@@ -81,6 +81,7 @@ def should_ignore(path: Path, root_dir: Path, gitignore_patterns: list) -> bool:
         ".idea",
         ".vscode",
         ".bhavai",
+        ".next"
     }
 
     for part in path.relative_to(root_dir).parts:

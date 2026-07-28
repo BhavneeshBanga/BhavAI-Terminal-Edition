@@ -149,6 +149,7 @@ from rich.text import Text
 from bhavai.config import logger
 from bhavai.llm import query_llm
 
+from bhavai.ui.shimmer import ShimmerStatus
 
 class AgentMode:
     """Enumeration of available agent execution modes."""
@@ -314,7 +315,8 @@ def prompt_and_confirm_plan(
     Returns:
         The generated plan step strings.
     """
-    with console.status("[bold blue]Generating plan...", spinner="dots"):
+    # with console.status("[bold blue]Generating plan...", spinner="dots"):
+    with ShimmerStatus("Generating plan...", color="blue"):
         plan_steps = generate_plan(user_input, folder_tree, feedback)
 
     display_plan(plan_steps, console)

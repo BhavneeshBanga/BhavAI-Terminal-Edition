@@ -165,8 +165,26 @@ def wake(action):
     def clear():
         os.system("cls" if os.name == "nt" else "clear")
 
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.table import Table
+
+    # =========================================================================
+    # Wolf-core art — ab yeh panel ke andar, left side mein baithega
+    # =========================================================================
+    BHAVAI_WOLF = """[#B8C4D0]⠀⠀⠀⠀⠀    ⣀⣠⣤⣤⣤⣤⣄⣀⠀⠀⠀⠀⠀[/]
+    [#B8C4D0]⠀⠀⢀⣴⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣦⡀⠀⠀[/]
+    [#9BAAB8]⠀⣴⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠟⢿⣿⣷⡀⠀[/]
+    [#9BAAB8]⣸⣿⣿⣿⣿⣿⣿⣿⣿⣿⠟⠁⠀⣴⢿⣿⣧⠀[/]
+    [#7B8A99]⣿⣿⣿⣿⣿⡿⠛⣩⠍⠀⠀⠀⠐⠉⢠⣿⣿⡇[/]
+    [#7B8A99]⣿⡿⠛⠋⠉⠀⠀⠀⠀⠀⠀⠀⠀⢠⣿⣿⣿⣿[/]
+    [#5C6B7A]⢹⣿⣤⠄⠀⠀⠀⠀⠀⠀⠀⠀⢠⣿⣿⣿⣿⡏[/]
+    [#5C6B7A]⠀⠻⡏⠀⠀⠀⠀⠀⠀⠀⠀⠀⢿⣿⣿⣿⠟⠀[/]
+    [#3C4B5A]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢻⠟⠁⠀⠀[/]"""
+
+
     def print_bhavai_terminal_agent():
-        
+
         clear()
         print(YEL + "▄" * 58 + R)
         print()
@@ -192,7 +210,7 @@ def wake(action):
         print(print_bhavai_agent())
     else:
         pass
-    
+
     banner_text = (
         f"🚀 [bold green]BhavAI Activated Successfully![/bold green]\n\n"
         f"📍  [bold]Location:[/bold] {cfg['CWD']}\n"
@@ -202,8 +220,18 @@ def wake(action):
         # f"{do_you_know}\n\n"
         f"[dim]Type your requests below. Use 'mode agent' or 'mode plan' to toggle modes, 'exit' or 'quit' to close.[/dim]"
     )
-    console.print(Panel(banner_text, title="BhavAI Personal Terminal Agent", border_style="green"))
-    
+
+    # --- NEW: wolf + banner_text ek hi grid mein, jo phir ek hi Panel ke andar jaayega ---
+    inner_layout = Table.grid(padding=(0, 2))
+    inner_layout.add_column("wolf", justify="center", vertical="middle")
+    inner_layout.add_column("info", justify="left", ratio=1)
+    inner_layout.add_row(BHAVAI_WOLF, banner_text)
+
+    console.print(
+        Panel(inner_layout, title="BhavAI Personal Terminal Agent", border_style="green")
+    )
+    # --- end new block, replaces the old: console.print(Panel(banner_text, ...)) ---
+
     # Print initial folder tree
     console.print("\n[bold]Current Directory Structure:[/bold]")
     try:
@@ -216,7 +244,7 @@ def wake(action):
     except Exception as e:
         console.print(f"[yellow]Warning: Could not build folder tree: {e}[/yellow]")
     console.print()
-    
+
     # Initialize session state
     current_mode = AgentMode.PLAN
     memory = ConversationMemory()
@@ -224,7 +252,6 @@ def wake(action):
     from prompt_toolkit.formatted_text import HTML
 
     session = PromptSession()
-
 
 
     def get_prompt_text():
@@ -240,6 +267,85 @@ def wake(action):
             return HTML('<ansicyan><b>(plan)</b></ansicyan> > ')
         else:
             return HTML('<ansiyellow><b>(agent)</b></ansiyellow> > ')
+
+
+    SESSION_NAME = "NEW_CHAT_" + str(int(time.time()))
+# SESSION_NAME = "NEW_CHAT_" + str(int(time.time()))
+    # def print_bhavai_terminal_agent():
+        
+    #     clear()
+    #     print(YEL + "▄" * 58 + R)
+    #     print()
+    #     logo = [
+    #         r" ██████╗ ██╗  ██╗ █████╗ ██╗   ██╗ █████╗ ██╗    ████████╗███████╗██████╗ ███╗   ███╗██╗███╗   ██╗ █████╗ ██╗        █████╗  ██████╗ ███████╗███╗   ██╗████████╗",
+    #         r" ██╔══██╗██║  ██║██╔══██╗██║   ██║██╔══██╗██║       ██╔══╝██╔════╝██╔══██╗████╗ ████║██║████╗  ██║██╔══██╗██║       ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝",
+    #         r" ██████╔╝███████║███████║██║   ██║███████║██║       ██║   █████╗  ██████╔╝██╔████╔██║██║██╔██╗ ██║███████║██║       ███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║   ",
+    #         r" ██╔══██╗██╔══██║██╔══██║╚██╗ ██╔╝██╔══██║██║       ██║   ██╔══╝  ██╔══██╗██║╚██╔╝██║██║██║╚██╗██║██╔══██║██║       ██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║   ",
+    #         r" ██████╔╝██║  ██║██║  ██║ ╚████╔╝ ██║  ██║██║       ██║   ███████╗██║  ██║██║ ╚═╝ ██║██║██║ ╚████║██║  ██║██████╗   ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║   ",
+    #         r" ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝  ╚═══╝  ╚═╝  ╚═╝╚═╝       ╚═╝   ╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝╚═════╝   ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝   ",
+    #     ]
+    #     for line in logo:
+    #         print(GOLD + BOLD + line + R)
+    #     print()
+    #     username = getpass.getuser()
+    #     typewrite(f"  ⚡  Terminal Edition — {username} ke liye  ⚡", delay=0.022, color=GOLD + BOLD)
+    #     print(YEL + "▀" * 58 + R)
+    #     print()
+
+    # if(threshold_width_ > 160):
+    #     print_bhavai_terminal_agent()
+    # elif(threshold_width_ > 94 and threshold_width_ < 160):
+    #     print(print_bhavai_agent())
+    # else:
+    #     pass
+    
+    # banner_text = (
+    #     f"🚀 [bold green]BhavAI Activated Successfully![/bold green]\n\n"
+    #     f"📍  [bold]Location:[/bold] {cfg['CWD']}\n"
+    #     f"⚙️  [bold]Model:[/bold] {cfg['MODEL']}\n"
+    #     f"🛡️  [bold]Initial Mode:[/bold] [bold cyan]Plan Mode[/bold cyan] (Default)\n"
+    #     f"📝 [bold]Logs Path:[/bold] {cfg['LOG_FILE']}\n"
+    #     # f"{do_you_know}\n\n"
+    #     f"[dim]Type your requests below. Use 'mode agent' or 'mode plan' to toggle modes, 'exit' or 'quit' to close.[/dim]"
+    # )
+    # console.print(Panel(banner_text, title="BhavAI Personal Terminal Agent", border_style="green"))
+    
+    # # Print initial folder tree
+    # console.print("\n[bold]Current Directory Structure:[/bold]")
+    # try:
+    #     tree_str = get_folder_tree_string(CWD)
+    #     console.print(tree_str)
+    #     console.print("")
+    #     show_update_message(console)
+    #     console.print("")
+    #     console.print(do_you_know)
+    # except Exception as e:
+    #     console.print(f"[yellow]Warning: Could not build folder tree: {e}[/yellow]")
+    # console.print()
+    
+    # # Initialize session state
+    # current_mode = AgentMode.PLAN
+    # memory = ConversationMemory()
+
+    # from prompt_toolkit.formatted_text import HTML
+
+    # session = PromptSession()
+
+
+
+    # def get_prompt_text():
+    #     """
+    #     Live prompt that re-evaluate for every key stroke.
+    #     """
+    #     buf = session.default_buffer.text
+    #     if buf.startswith("!"):
+    #         return HTML('<ansired><b>(bash)</b></ansired> > ')
+    #     if buf.startswith("/"):
+    #         return HTML('<ansiyellow><b>(command)</b></ansiyellow> > ')
+    #     if current_mode == AgentMode.PLAN:
+    #         return HTML('<ansicyan><b>(plan)</b></ansicyan> > ')
+    #     else:
+    #         return HTML('<ansiyellow><b>(agent)</b></ansiyellow> > ')
         
 
     SESSION_NAME = "NEW_CHAT_" + str(int(time.time()))

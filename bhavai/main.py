@@ -166,8 +166,6 @@ def wake(action):
     def clear():
         os.system("cls" if os.name == "nt" else "clear")
 
-    from rich.console import Console
-    from rich.panel import Panel
     from rich.table import Table
 
     # =========================================================================

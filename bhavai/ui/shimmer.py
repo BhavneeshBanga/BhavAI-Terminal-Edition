@@ -45,7 +45,7 @@ def shimmer_text(text, color="blue", delay=0.02, loops=2, width=6.0, steps_per_c
     start, end = -width, n + width
     total_steps = int((end - start) * steps_per_char)
 
-    with Live(console=console, refresh_per_second=120) as live:
+    with Live(console=console, refresh_per_second=7) as live:
         for _ in range(loops):
             for step in range(total_steps):
                 center = start + (step / steps_per_char)

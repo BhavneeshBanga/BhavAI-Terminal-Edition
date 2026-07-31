@@ -96,7 +96,7 @@ def call_sarvam(messages: list[dict]) -> str:
 # Internal: single API call, returns (content, stop_reason)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _call_api(messages: list, calls: int,  temperature: float = 0.0) -> tuple[str, str]:
+def _call_api(messages: list, calls: int = 0, temperature: float = 0.0) -> tuple[str, str]:
     """
     Makes one call to the Sarvam chat completions endpoint.
 
@@ -365,7 +365,7 @@ def _call_api(messages: list, calls: int,  temperature: float = 0.0) -> tuple[st
 # Public: single-shot (for short outputs like plan generation)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def query_llm(messages: list, calls:int, temperature: float = 0.0) -> str:
+def query_llm(messages: list, calls: int = 0, temperature: float = 0.0) -> str:
     """
     Single-shot LLM call. Returns the content string.
     Used by modes.py (plan generation) where the output is short and
@@ -373,7 +373,7 @@ def query_llm(messages: list, calls:int, temperature: float = 0.0) -> str:
 
     For the ReAct agent loop use query_llm_with_continuation() instead.
     """
-    content, _ = _call_api(messages , temperature, calls=calls)
+    content, _ = _call_api(messages, calls=calls, temperature=temperature)
     return content
 
 
@@ -383,7 +383,7 @@ def query_llm(messages: list, calls:int, temperature: float = 0.0) -> str:
 
 def query_llm_with_continuation(
     messages:      list,
-    calls : int,
+    calls:         int   = 0,
     temperature:   float = 0.0,
     max_rounds:    int   = 6,
 ) -> str:

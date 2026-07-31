@@ -30,7 +30,6 @@ import json
 import re
 from rich.console import Console
 from rich.panel import Panel
-from plyer import notification
 
 from bhavai.config import CWD, logger
 from bhavai.context import get_folder_tree_string
@@ -39,7 +38,9 @@ from bhavai.memory import ConversationMemory
 from bhavai.tools import TOOL_DISPATCH, get_project_memory_string
 from bhavai.skill_getter import discover_skills_from_dot_bhavai
 
-MUTATING_TOOLS = {"write_file", "update_file", "append_chunk", "run_command"}
+MUTATING_TOOLS = {"write_file", "update_file", "append_chunk", "run_command",
+                  "replace_function", "insert_function", "replace_lines",
+                  "insert_lines", "delete_lines", "rename_path"}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # System Prompt
@@ -386,47 +387,56 @@ def _fmt_args(args: dict) -> str:
     return ", ".join(parts)
 
 
+def _notify_safe(title: str, message: str) -> None:
+    """Send desktop notification, but never crash if plyer fails."""
+    try:
+        from plyer import notification
+        notification.notify(
+            title=title,
+            message=message,
+            app_name="BhavAI",
+            timeout=10,
+        )
+    except Exception:
+        pass  # Notification failure should never block agent execution
+
+
 # ─────────────────────────────────────────────────────────────────────────────
-# Main ReAct Loop Planning
+# Unified ReAct Loop (shared by plan + autonomous modes)
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def run_agent_loop_plan(
-    user_input:   str,
-    memory:       ConversationMemory,
-    current_mode: str,
-    plan_steps:   list = None,
-    max_steps:    int  = 30,
-    console:      Console = None,
+def _run_agent_loop(
+    user_input:       str,
+    memory:           ConversationMemory,
+    current_mode:     str,
+    task_prompt:      str,
+    max_steps:        int     = 30,
+    console:          Console = None,
+    require_approval: bool    = True,
+    planner_state     = None,
 ) -> str:
     """
-    Executes the ReAct (Reason → Act → Observe) loop.
+    Core ReAct (Reason → Act → Observe) loop used by both plan and autonomous modes.
 
-    Key change from v1
-    ------------------
-    Uses query_llm_with_continuation() instead of query_llm().
-    If the LLM hits the 4096-token wall mid-response, the continuation
-    loop in llm.py automatically fetches the rest and stitches it together
-    BEFORE we attempt JSON parsing. This means the JSON repair pipeline
-    (Layer 4) now only needs to handle edge cases, not the common case.
+    Parameters
+    ----------
+    user_input       : Original user request.
+    memory           : Conversation memory.
+    current_mode     : "plan" or "agent".
+    task_prompt      : The formatted task prompt to send to the LLM.
+    max_steps        : Maximum ReAct iterations.
+    console          : Rich Console for output.
+    require_approval : If True, ask y/n for mutating tools only.
+                       If False, auto-approve all tools (read-only always auto-approved).
+    planner_state    : Optional PlannerState for tracking step completion.
     """
-    # if console is None:
-    #     console = Console()
-
-    task_prompt = user_input
-    if plan_steps:
-        steps_str   = "\n".join(f"  {i+1}. {s}" for i, s in enumerate(plan_steps))
-        task_prompt = (
-            f"Task: {user_input}\n\n"
-            f"Approved plan:\n{steps_str}\n\n"
-            "REMINDER: For any file > 50 lines use append_chunk (≤50 lines per call)."
-        )
-
     memory.add_message("user", task_prompt)
 
     step_count            = 0
     consecutive_json_errs = 0
     calls = 0
+
     while step_count < max_steps:
         step_count += 1
         logger.info("ReAct step %d/%d", step_count, max_steps)
@@ -440,17 +450,11 @@ def run_agent_loop_plan(
             folder_tree=folder_tree,
             skills_block=discover_skills_from_dot_bhavai(CWD),
         )
-        # logger.debug("SYSTEM PROMPT:\n%s", system_prompt)
-        # print("system prompt : ", system_prompt)
 
         raw_response = ""
-        # with console.status("[bold blue]Thinking…[/bold blue]", spinner="dots"):
         with ShimmerStatus("Thinking…", color="blue"):
             try:
                 messages     = memory.get_messages(system_prompt)
-                # print("messages", messages)
-                # ── KEY CHANGE: continuation instead of single-shot ──────── #
-                # raw_response = query_llm_with_continuation(messages)
                 raw_response = query_llm_with_continuation(messages, calls=calls % 4)
             except Exception as exc:
                 err = f"LLM Error: {exc}"
@@ -522,31 +526,49 @@ def run_agent_loop_plan(
             console.print(answer)
             console.print()
             memory.add_message("assistant", raw_response)
+
+            # Mark plan as completed if we have planner state
+            if planner_state:
+                try:
+                    from bhavai.planner import set_plan_status
+                    set_plan_status(planner_state, "completed")
+                except Exception:
+                    pass
+
             return answer
 
         if tool_name in TOOL_DISPATCH:
             tool_func    = TOOL_DISPATCH[tool_name]
             args_display = _fmt_args(tool_args)
-            notification.notify(
-                title="BhavAI is Asking For Permission",
-                message=f"type y for yes or no for denied\n {tool_name}{args_display}",
-                app_name="BhavAI",
-                timeout=20 # seconds
-            )
-            console.print(f"\n[bold yellow] Run {tool_name}({args_display}) (y/n): [/bold yellow]")
-            user_answer = input().strip().lower()
 
-            if user_answer == "n":
-                result = f"User declined to run '{tool_name}'. Skipped."
-                console.print(f"[yellow]✗ Skipped {tool_name} (user declined)[/yellow]")
-                memory.add_message("assistant", raw_response)
-                memory.add_message("system", f"Observation from {tool_name}:\n{result}")
-                calls += 1
-                continue
+            # ── Approval logic ──────────────────────────────────────────
+            is_mutating = tool_name in MUTATING_TOOLS
+            needs_approval = require_approval and is_mutating
 
-            if user_answer == "exit":
-                return
-            
+            if needs_approval:
+                _notify_safe(
+                    "BhavAI — Permission Required",
+                    f"Tool: {tool_name}({args_display[:80]})"
+                )
+                console.print(
+                    f"\n[bold yellow]⚡ Run [green]{tool_name}[/green]"
+                    f"({args_display})? (y/n/exit): [/bold yellow]",
+                    end=""
+                )
+                user_answer = console.input("").strip().lower()
+
+                if user_answer == "n":
+                    result = f"User declined to run '{tool_name}'. Skipped."
+                    console.print(f"[yellow]✗ Skipped {tool_name} (user declined)[/yellow]")
+                    memory.add_message("assistant", raw_response)
+                    memory.add_message("system", f"Observation from {tool_name}:\n{result}")
+                    calls += 1
+                    continue
+
+                if user_answer == "exit":
+                    return "Agent loop exited by user."
+
+            # ── Execute tool ────────────────────────────────────────────
             with console.status(
                 f"[bold blue][TOOL][/bold blue] "
                 f"[bold green]{tool_name}[/bold green]({args_display})…",
@@ -564,10 +586,8 @@ def run_agent_loop_plan(
 
         text_to_be_displayed_inside_console = result[:100]
         console.print(Panel(
-            # str(result),
             str(text_to_be_displayed_inside_console),
             title=f"[bold]🔍 Observation — {tool_name}[/bold] ",
-            # title=f"[bold]🔍 Observation — {tool_name}[/bold] - {tool_args['path']}",
             title_align="left",
             border_style="blue",
         ))
@@ -576,9 +596,6 @@ def run_agent_loop_plan(
         memory.add_message("system", f"Observation from {tool_name}:\n{result}")
 
         calls = calls + 1
-        
-
-
 
     timeout_msg = (f"ReAct loop hit {max_steps}-step limit. "
                    "Task may be incomplete — try a more specific request.")
@@ -587,8 +604,65 @@ def run_agent_loop_plan(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Main ReAct Loop Autonomous
+# Public Entry Points
 # ─────────────────────────────────────────────────────────────────────────────
+
+
+def run_agent_loop_plan(
+    user_input:   str,
+    memory:       ConversationMemory,
+    current_mode: str,
+    plan_steps    = None,
+    planner_state = None,
+    max_steps:    int  = 30,
+    console:      Console = None,
+) -> str:
+    """
+    Plan mode entry point. Accepts either a PlannerState (rich) or list of step strings (legacy).
+
+    Builds a detailed task prompt with the approved plan steps and executes with
+    per-mutating-tool approval.
+    """
+    # Build the task prompt from the plan
+    if planner_state is not None:
+        # Rich plan from deep planner
+        from bhavai.planner import set_plan_status
+        set_plan_status(planner_state, "in_progress")
+
+        steps_str = "\n".join(
+            f"  {step.order}. [{step.step_id}] {step.title}: {step.description}"
+            f" (Tools: {', '.join(step.tools) if step.tools else 'any'})"
+            for step in planner_state.plan
+        )
+        task_prompt = (
+            f"Task: {user_input}\n\n"
+            f"Refined Goal: {planner_state.refined_goal}\n\n"
+            f"Approved plan (execute ALL steps in order):\n{steps_str}\n\n"
+            f"REMINDER: For any file > 50 lines use append_chunk (≤50 lines per call).\n"
+            f"After completing ALL steps, call final_answer with a summary of what was done."
+        )
+    elif plan_steps:
+        # Legacy flat list of step strings
+        steps_str = "\n".join(f"  {i+1}. {s}" for i, s in enumerate(plan_steps))
+        task_prompt = (
+            f"Task: {user_input}\n\n"
+            f"Approved plan:\n{steps_str}\n\n"
+            "REMINDER: For any file > 50 lines use append_chunk (≤50 lines per call)."
+        )
+    else:
+        task_prompt = user_input
+
+    return _run_agent_loop(
+        user_input=user_input,
+        memory=memory,
+        current_mode=current_mode,
+        task_prompt=task_prompt,
+        max_steps=max_steps,
+        console=console,
+        require_approval=True,
+        planner_state=planner_state,
+    )
+
 
 def run_agent_loop_autonomous(
     user_input:   str,
@@ -599,189 +673,24 @@ def run_agent_loop_autonomous(
     console:      Console = None,
 ) -> str:
     """
-    Executes the ReAct (Reason → Act → Observe) loop.
-
-    Key change from v1
-    ------------------
-    Uses query_llm_with_continuation() instead of query_llm().
-    If the LLM hits the 4096-token wall mid-response, the continuation
-    loop in llm.py automatically fetches the rest and stitches it together
-    BEFORE we attempt JSON parsing. This means the JSON repair pipeline
-    (Layer 4) now only needs to handle edge cases, not the common case.
+    Autonomous mode entry point. Executes without per-tool approval
+    (mutating tools still prompt if console supports it).
     """
-    # if console is None:
-    #     console = Console()
-
     task_prompt = user_input
     if plan_steps:
-        steps_str   = "\n".join(f"  {i+1}. {s}" for i, s in enumerate(plan_steps))
+        steps_str = "\n".join(f"  {i+1}. {s}" for i, s in enumerate(plan_steps))
         task_prompt = (
             f"Task: {user_input}\n\n"
             f"Approved plan:\n{steps_str}\n\n"
             "REMINDER: For any file > 50 lines use append_chunk (≤50 lines per call)."
         )
 
-    memory.add_message("user", task_prompt)
-
-    step_count            = 0
-    consecutive_json_errs = 0
-    calls = 0
-    while step_count < max_steps:
-        step_count += 1
-        logger.info("ReAct step %d/%d", step_count, max_steps)
-
-        folder_tree   = get_folder_tree_string(CWD)
-        project_context_block = _build_project_context_block(CWD)
-
-        system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
-            cwd=str(CWD),
-            project_context_block=project_context_block,
-            folder_tree=folder_tree,
-            skills_block=discover_skills_from_dot_bhavai(CWD),
-        )
-        # logger.debug("SYSTEM PROMPT:\n%s", system_prompt)
-        # print("system prompt : ", system_prompt)
-
-        raw_response = ""
-        # with console.status("[bold blue]Thinking…[/bold blue]", spinner="dots"):
-        with ShimmerStatus("Thinking…", color="blue"):
-            try:
-                messages     = memory.get_messages(system_prompt)
-                # print("messages", messages)
-                # ── KEY CHANGE: continuation instead of single-shot ──────── #
-                # raw_response = query_llm_with_continuation(messages)
-                raw_response = query_llm_with_continuation(messages, calls=calls % 4)
-            except Exception as exc:
-                err = f"LLM Error: {exc}"
-                console.print(f"[bold red]{err}[/bold red]")
-                logger.error(err)
-                return err
-
-        if not raw_response:
-            err = "LLM returned an empty response. Please try again."
-            console.print(f"[bold red]{err}[/bold red]")
-            logger.error(err)
-            return err
-
-        try:
-            parsed = parse_llm_json(raw_response)
-            consecutive_json_errs = 0
-        except ValueError as exc:
-            consecutive_json_errs += 1
-            explanation = str(exc)
-            console.print(
-                f"[bold red]JSON Parse Error "
-                f"({consecutive_json_errs}/3):[/bold red] {explanation}"
-            )
-            logger.warning("Malformed JSON step %d: %r", step_count, raw_response[:300])
-
-            if consecutive_json_errs >= 3:
-                msg = ("Aborting: 3 consecutive JSON errors. "
-                       "Try a simpler task or break it into smaller steps.")
-                console.print(f"[bold red]{msg}[/bold red]")
-                return msg
-
-            memory.add_message("assistant", raw_response)
-            memory.add_message(
-                "user",
-                f"ERROR: Your response could not be parsed as JSON.\n"
-                f"Reason: {explanation}\n\n"
-                f"This almost always means your response was cut off at the 4096-token limit.\n"
-                f"ACTION REQUIRED:\n"
-                f"  • Do NOT retry the same large write_file call.\n"
-                f"  • Use append_chunk instead with ≤50 lines per chunk.\n"
-                f"  • First chunk: append_chunk path=... chunk='<lines 1-50>' done=false\n"
-                f"  • Continue until the file is complete, then set done=true.\n"
-                f"Reply with a valid JSON object following the response schema."
-            )
-            continue
-
-        thought   = parsed.get("thought", "")
-        tool_name = parsed.get("tool_name", "")
-        tool_args = parsed.get("tool_args", {})
-
-        if thought:
-            console.print(Panel(
-                f"[dim italic]{thought}[/dim italic]",
-                title="[bold]💭 BhavAI Thought[/bold]",
-                title_align="left",
-                border_style="dim",
-            ))
-
-        if not tool_name:
-            memory.add_message("assistant", raw_response)
-            memory.add_message("user",
-                "Error: 'tool_name' is missing from your JSON. "
-                "Please include it in your next response.")
-            continue
-
-        if tool_name == "final_answer":
-            answer = tool_args.get("answer", "Task complete.")
-            console.print("\n[bold green]✅ BhavAI Final Answer:[/bold green]")
-            console.print(answer)
-            console.print()
-            memory.add_message("assistant", raw_response)
-            return answer
-
-        if tool_name in TOOL_DISPATCH:
-            tool_func    = TOOL_DISPATCH[tool_name]
-            args_display = _fmt_args(tool_args)
-
-
-            if tool_name in MUTATING_TOOLS and console is not None and hasattr(console, "confirm"):
-                approved = console.confirm(
-                    f"Run {tool_name}({args_display})?\nYe file modify karega ya command chalayega."
-                )
-                if not approved:
-                    result = f"User declined to run '{tool_name}'. Skipped."
-                    console.print(f"[yellow]✗ Skipped {tool_name} (user declined)[/yellow]")
-                    memory.add_message("assistant", raw_response)
-                    memory.add_message("system", f"Observation from {tool_name}:\n{result}")
-                    calls += 1
-                    continue
-            with console.status(
-                f"[bold blue][TOOL][/bold blue] "
-                f"[bold green]{tool_name}[/bold green]({args_display})…",
-                spinner="dots"
-            ):
-                try:
-                    result = tool_func(**tool_args) if isinstance(tool_args, dict) else tool_func()
-                except Exception as exc:
-                    result = f"Tool error — {tool_name}: {exc}"
-                    logger.error("Tool crash %s: %s", tool_name, exc)
-        else:
-            result = (f"Error: Unknown tool '{tool_name}'. "
-                      f"Available: {list(TOOL_DISPATCH.keys())}")
-            logger.warning("Unknown tool: %s", tool_name)
-
-        text_to_be_displayed_inside_console = result[:100]
-        console.print(Panel(
-            # str(result),
-            str(text_to_be_displayed_inside_console),
-            title=f"[bold]🔍 Observation — {tool_name}[/bold] ",
-            # title=f"[bold]🔍 Observation — {tool_name}[/bold] - {tool_args['path']}",
-            title_align="left",
-            border_style="blue",
-        ))
-
-        memory.add_message("assistant", raw_response)
-        memory.add_message("system", f"Observation from {tool_name}:\n{result}")
-
-        calls = calls + 1
-
-        # from bhavai.core.messages import get_last_n_tools
-        # last_3_tools = get_last_n_tools(messages)
-        # if last_3_tools == [
-        #     "read_file",
-        #     "read_file",
-        #     "read_file"
-        # ]:
-        #     memory.add_message(
-        #         "system",
-        #         "The file is empty. Stop reading it again. Proceed with creating new content."
-        #     )
-
-    timeout_msg = (f"ReAct loop hit {max_steps}-step limit. "
-                   "Task may be incomplete — try a more specific request.")
-    console.print(f"[bold red]⚠  {timeout_msg}[/bold red]")
-    return timeout_msg
+    return _run_agent_loop(
+        user_input=user_input,
+        memory=memory,
+        current_mode=current_mode,
+        task_prompt=task_prompt,
+        max_steps=max_steps,
+        console=console,
+        require_approval=False,
+    )

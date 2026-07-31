@@ -496,12 +496,16 @@ def wake(action):
 
             if is_command or current_mode == AgentMode.PLAN:
                 folder_tree = get_folder_tree_string(CWD)
+                from bhavai.skill_getter import discover_skills_from_dot_bhavai
+                skills_block = discover_skills_from_dot_bhavai(CWD)
                 feedback = None
-                plan_steps = None
+                planner_state = None
 
                 # Loop: generate → show → confirm/feedback → regenerate if needed
                 while True:
-                    plan_steps = prompt_and_confirm_plan(user_input, folder_tree, console, feedback)
+                    planner_state = prompt_and_confirm_plan(
+                        user_input, folder_tree, console, feedback, skills_block=skills_block
+                    )
                     ans = console.input(
                         "[bold yellow]Proceed?[/bold yellow] (y / n / type feedback to edit plan) > "
                     ).strip()
@@ -509,19 +513,19 @@ def wake(action):
                     if ans.lower() == "y":
                         break
                     elif ans.lower() in ("n", "no", ""):
-                        plan_steps = None
+                        planner_state = None
                         break
                     else:
                         feedback = ans
                         console.print(f"[blue]Regenerating plan with feedback: '{feedback}'...[/blue]")
 
-                if plan_steps:
+                if planner_state:
                     console.print("[bold green]Plan approved. Executing step-by-step...[/bold green]")
                     run_agent_loop_plan(
                         user_input=user_input,
                         memory=memory,
                         current_mode=current_mode,
-                        plan_steps=plan_steps,
+                        planner_state=planner_state,
                         console=console
                     )
                 else:

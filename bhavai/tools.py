@@ -359,11 +359,11 @@ def append_chunk(path: str, chunk: str, done: bool = False) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 # Tool: run_command
 # ─────────────────────────────────────────────────────────────────────────────
-
+import subprocess, sys, threading
 def run_command(command: str) -> str:
     """
-    Runs a shell command inside CWD with a 10-second timeout.
-    Blocked commands are rejected before execution.
+    Runs a shell command inside CWD with a 30-second timeout.
+    Streams output live and returns a terminal-like summary.
     """
     logger.info("run_command('%s')", command)
     try:
@@ -371,14 +371,27 @@ def run_command(command: str) -> str:
     except ValueError as exc:
         return str(exc)
 
-    import sys
+    output_lines = []
+
+    def stream_reader(pipe):
+        for line in iter(pipe.readline, ""):
+            if line:
+                print(line, end="")   # live terminal me dikhega
+                output_lines.append(line)
+        pipe.close()
+
     try:
         proc = subprocess.Popen(
             command, shell=True, cwd=CWD,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, bufsize=1,
         )
+
+        t = threading.Thread(target=stream_reader, args=(proc.stdout,))
+        t.start()
+
         try:
-            stdout, stderr = proc.communicate(timeout=10)
+            proc.wait(timeout=30)
         except subprocess.TimeoutExpired:
             logger.warning("Command timed out: '%s'", command)
             if sys.platform == "win32":
@@ -386,20 +399,65 @@ def run_command(command: str) -> str:
                                shell=True, capture_output=True)
             else:
                 proc.kill()
-            stdout, stderr = proc.communicate()
-            parts = ["Error: Command timed out (10 s)."]
-            if stdout: parts.append(f"Stdout:\n{stdout}")
-            if stderr: parts.append(f"Stderr:\n{stderr}")
-            return "\n".join(parts)
+            t.join()
+            return "Error: Command timed out (30 s).\n" + "".join(output_lines)
 
-        parts = []
-        if stdout: parts.append(stdout)
-        if stderr: parts.append(f"Stderr:\n{stderr}")
-        return "\n".join(parts) if parts else "Command executed with no output."
+        t.join()
+        exit_code = proc.returncode
+        full_output = "".join(output_lines)
+
+        if full_output:
+            result = full_output
+        else:
+            result = "(no output)\n"
+        result += f"[exit code: {exit_code}]"
+        return result
 
     except Exception as exc:
         logger.error("run_command('%s'): %s", command, exc)
         return f"Error executing command: {exc}"
+
+    
+# def run_command(command: str) -> str:
+#     """
+#     Runs a shell command inside CWD with a 30-second timeout.
+#     Blocked commands are rejected before execution.
+#     """
+#     logger.info("run_command('%s')", command)
+#     try:
+#         validate_command(command)
+#     except ValueError as exc:
+#         return str(exc)
+
+#     import sys
+#     try:
+#         proc = subprocess.Popen(
+#             command, shell=True, cwd=CWD,
+#             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+#         )
+#         try:
+#             stdout, stderr = proc.communicate(timeout=30)
+#         except subprocess.TimeoutExpired:
+#             logger.warning("Command timed out: '%s'", command)
+#             if sys.platform == "win32":
+#                 subprocess.run(f"taskkill /F /T /PID {proc.pid}",
+#                                shell=True, capture_output=True)
+#             else:
+#                 proc.kill()
+#             stdout, stderr = proc.communicate()
+#             parts = ["Error: Command timed out (30 s)."]
+#             if stdout: parts.append(f"Stdout:\n{stdout}")
+#             if stderr: parts.append(f"Stderr:\n{stderr}")
+#             return "\n".join(parts)
+
+#         parts = []
+#         if stdout: parts.append(stdout)
+#         if stderr: parts.append(f"Stderr:\n{stderr}")
+#         return "\n".join(parts) if parts else "Command executed with no output."
+
+#     except Exception as exc:
+#         logger.error("run_command('%s'): %s", command, exc)
+#         return f"Error executing command: {exc}"
 
 def get_project_memory_string(cwd: Path) -> str:
     """
@@ -437,6 +495,11 @@ TOOL_DISPATCH = {
 # ensure_git_initialized / _git_stage FROM this module).
 # ─────────────────────────────────────────────────────────────────────────────
 
-from bhavai.tools_extended import EXTENDED_TOOL_DISPATCH  # noqa: E402
+# from bhavai.tools_extended import EXTENDED_TOOL_DISPATCH  # noqa: E402
 
-TOOL_DISPATCH.update(EXTENDED_TOOL_DISPATCH)
+# TOOL_DISPATCH.update(EXTENDED_TOOL_DISPATCH)
+
+
+
+if __name__ == "__main__":
+    print(run_command("whoami"))

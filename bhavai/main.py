@@ -206,7 +206,7 @@ def wake(action):
     if(threshold_width_ > 160):
         print_bhavai_terminal_agent()
     elif(threshold_width_ > 94 and threshold_width_ < 160):
-        print(print_bhavai_agent())
+        print_bhavai_agent()
     else:
         pass
 

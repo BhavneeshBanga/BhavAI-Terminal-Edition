@@ -559,7 +559,14 @@ def _run_agent_loop(
 
         if tool_name in TOOL_DISPATCH:
             tool_func    = TOOL_DISPATCH[tool_name]
+            # print()
+            # print(tool_args)
+            # print()
             args_display = _fmt_args(tool_args)
+
+            # print()
+            # print(args_display)
+            # print()
 
             # ── Approval logic ──────────────────────────────────────────
             is_mutating = tool_name in MUTATING_TOOLS
@@ -572,7 +579,7 @@ def _run_agent_loop(
                 )
                 console.print(
                     f"\n[bold yellow]⚡ Run [green]{tool_name}[/green]"
-                    f"({args_display})? (y/n/exit): [/bold yellow]",
+                    f"({tool_args['command']})? (y/n/exit): [/bold yellow]",
                     end=""
                 )
                 user_answer = console.input("").strip().lower()

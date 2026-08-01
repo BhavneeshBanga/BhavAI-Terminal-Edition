@@ -544,6 +544,94 @@ def fetch_url(url: str, max_chars: int = 8000) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Tool: duckduckgo_search — real-time web search for prices, docs, and news.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def duckduckgo_search(query: str, max_results: int = 5) -> str:
+    """
+    Searches DuckDuckGo on the web for live query results, returning titles,
+    snippets, and links for up to `max_results` (default 5).
+
+    Use this when you need real-time data, current pricing, documentation links,
+    or answers to questions beyond training knowledge. Pair this with `fetch_url`
+    to read full pages from the returned links.
+    """
+    logger.info("duckduckgo_search('%s', max_results=%d)", query, max_results)
+    if not query or not query.strip():
+        return "Error: query string cannot be empty."
+
+    # Try ddgs or duckduckgo_search library if available
+    try:
+        try:
+            from ddgs import DDGS
+        except ImportError:
+            from duckduckgo_search import DDGS
+        results = []
+        with DDGS() as ddgs:
+            ddg_gen = list(ddgs.text(query.strip(), max_results=max_results))
+            if ddg_gen:
+                for r in ddg_gen:
+                    title = r.get("title", "No title")
+                    href = r.get("href", r.get("link", ""))
+                    body = r.get("body", r.get("snippet", ""))
+                    results.append(f"Title: {title}\nURL: {href}\nSnippet: {body}")
+        if results:
+            return f"DuckDuckGo search results for '{query}':\n\n" + "\n\n---\n\n".join(results)
+    except Exception as exc:
+        logger.debug("duckduckgo_search library unavailable or failed (%s); falling back to html scraping", exc)
+
+    # Fallback to direct HTTP request on html.duckduckgo.com
+    try:
+        import urllib.parse
+        encoded_query = urllib.parse.quote_plus(query.strip())
+        url = f"https://html.duckduckgo.com/html/?q={encoded_query}"
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept-Language": "en-US,en;q=0.9",
+            }
+        )
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            raw_html = resp.read().decode("utf-8", errors="replace")
+
+        results = []
+        link_matches = list(re.finditer(r'<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>', raw_html, re.IGNORECASE | re.DOTALL))
+        snippet_matches = list(re.finditer(r'<(?:a|div)[^>]*class="result__snippet"[^>]*>(.*?)</(?:a|div)>', raw_html, re.IGNORECASE | re.DOTALL))
+
+        for i, match in enumerate(link_matches[:max_results]):
+            raw_href = match.group(1)
+            raw_title = match.group(2)
+
+            clean_title = re.sub(r'<[^>]+>', '', raw_title).strip()
+
+            if "uddg=" in raw_href:
+                match_uddg = re.search(r'uddg=([^&]+)', raw_href)
+                if match_uddg:
+                    raw_href = urllib.parse.unquote(match_uddg.group(1))
+
+            snippet = ""
+            if i < len(snippet_matches):
+                snippet = re.sub(r'<[^>]+>', '', snippet_matches[i].group(1)).strip()
+
+            results.append(f"Title: {clean_title}\nURL: {raw_href}\nSnippet: {snippet}")
+
+        if not results:
+            clean_text = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", raw_html, flags=re.DOTALL | re.IGNORECASE)
+            clean_text = re.sub(r"<[^>]+>", " ", clean_text)
+            clean_text = re.sub(r"\s+", " ", clean_text).strip()
+            if len(clean_text) > 50:
+                return f"DuckDuckGo search results for '{query}':\n\n{clean_text[:2000]}"
+            return f"No results found on DuckDuckGo for query: '{query}'"
+
+        return f"DuckDuckGo search results for '{query}':\n\n" + "\n\n---\n\n".join(results)
+
+    except Exception as exc:
+        return f"Error performing DuckDuckGo search for '{query}': {exc}"
+
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Tool: get_function_source — precise, line-numbered view of ONE function.
 #
 # Why this earns a spot next to get_outline
@@ -1078,6 +1166,7 @@ EXTENDED_TOOL_DISPATCH = {
     "check_dependencies":   check_dependencies,
     "rename_path":          rename_path,
     "fetch_url":            fetch_url,
+    "duckduckgo_search":    duckduckgo_search,
     "get_function_source":  get_function_source,
     "insert_function":      insert_function,
     "replace_function":     replace_function,

@@ -33,10 +33,31 @@ from rich.panel import Panel
 
 from bhavai.config import CWD, logger
 from bhavai.context import get_folder_tree_string
-from bhavai.llm import query_llm_with_continuation   # ← NEW: use continuation
+from bhavai.llm import query_llm_with_continuation, provider_needs_chunking
 from bhavai.memory import ConversationMemory
 from bhavai.tools import TOOL_DISPATCH, get_project_memory_string
 from bhavai.skill_getter import discover_skills_from_dot_bhavai
+from bhavai.llm import query_llm_with_continuation, provider_needs_chunking
+
+
+
+def _token_budget_block() -> str:
+    if not provider_needs_chunking():
+        return ""   # Groq ke liye poora section gayab
+    return (
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "⚠  OUTPUT TOKEN BUDGET — READ CAREFULLY\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "Your maximum output is 4096 tokens (~3000 words).\n"
+        "...\n"
+        "GOLDEN RULE → MAXIMUM 50 LINES OF CODE PER TOOL CALL.\n"
+        "For ANY file longer than 50 lines you MUST use append_chunk...\n"
+    )
+
+def _chunk_reminder_suffix() -> str:
+    if not provider_needs_chunking():
+        return ""
+    return "REMINDER: For any file > 50 lines use append_chunk (≤50 lines per call).\n"
 
 MUTATING_TOOLS = {"write_file", "update_file", "append_chunk", "run_command",
                   "replace_function", "insert_function", "replace_lines",
@@ -92,6 +113,9 @@ AVAILABLE TOOLS
 - fetch_url     → {{"url": "string", "max_chars": "int (default 8000)"}}
     Fetches real documentation/API reference/Stack Overflow pages so you can
     answer from ground truth instead of guessing library APIs from memory.
+- duckduckgo_search → {{"query": "string", "max_results": "int (default 5)"}}
+    Searches DuckDuckGo on the web for live query results (prices, news, docs).
+    Pair with fetch_url to read full pages from search result links.
 - get_function_source → {{"path": "string", "function_name": "string"}}
     Returns ONE function's exact source + line numbers, found via AST. Use
     this instead of read_file when you only need to inspect one function.
@@ -174,21 +198,7 @@ STRICT RULES  (never break these)
 13. After making a code change, run run_tests (if a test suite exists) before calling
     final_answer. If a change breaks something, use revert_file to undo it rather than
     trying to manually patch it back.
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚠  OUTPUT TOKEN BUDGET — READ CAREFULLY
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Your maximum output is 4096 tokens (~3000 words).
-A JSON wrapper costs ~50 tokens, leaving ~3000 tokens for file content.
-That is roughly 200 lines of code — but DO NOT write 200 lines at once.
-
-GOLDEN RULE → MAXIMUM 50 LINES OF CODE PER TOOL CALL.
-
-For ANY file longer than 50 lines you MUST use append_chunk like this:
-
-  Step 1:  append_chunk  path="app.py"  chunk="<lines 1-50>"    done=false
-  Step 2:  append_chunk  path="app.py"  chunk="<lines 51-100>"  done=false
-  Step 3:  append_chunk  path="app.py"  chunk="<lines 101-120>" done=true
-
+{token_budget_block}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RESPONSE FORMAT  (raw JSON only — no markdown fences, no extra text)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -347,8 +357,10 @@ def parse_llm_json(raw_text: str) -> dict:
         logger.error("JSON parse failed: %s | cleaned=%r", e, cleaned[:500])
         raise ValueError(
             f"Invalid JSON — {e.msg} at line {e.lineno} col {e.colno}. "
-            f"Your response was likely cut off due to the 4096-token output limit. "
-            f"FIX: Use append_chunk with ≤50 lines per call instead of one large write."
+            + ("Your response was likely cut off due to the 4096-token output limit. "
+            "FIX: Use append_chunk with ≤50 lines per call instead of one large write."
+            if provider_needs_chunking() else
+            "The response may be malformed — check the JSON structure.")
         )
 
 
@@ -449,6 +461,7 @@ def _run_agent_loop(
             project_context_block=project_context_block,
             folder_tree=folder_tree,
             skills_block=discover_skills_from_dot_bhavai(CWD),
+            token_budget_block=_token_budget_block(),
         )
 
         raw_response = ""
@@ -491,13 +504,18 @@ def _run_agent_loop(
                 "user",
                 f"ERROR: Your response could not be parsed as JSON.\n"
                 f"Reason: {explanation}\n\n"
-                f"This almost always means your response was cut off at the 4096-token limit.\n"
-                f"ACTION REQUIRED:\n"
-                f"  • Do NOT retry the same large write_file call.\n"
-                f"  • Use append_chunk instead with ≤50 lines per chunk.\n"
-                f"  • First chunk: append_chunk path=... chunk='<lines 1-50>' done=false\n"
-                f"  • Continue until the file is complete, then set done=true.\n"
-                f"Reply with a valid JSON object following the response schema."
+                + (
+                    "This almost always means your response was cut off at the 4096-token limit.\n"
+                    "ACTION REQUIRED:\n"
+                    "  • Do NOT retry the same large write_file call.\n"
+                    "  • Use append_chunk instead with ≤50 lines per chunk.\n"
+                    "  • First chunk: append_chunk path=... chunk='<lines 1-50>' done=false\n"
+                    "  • Continue until the file is complete, then set done=true.\n"
+                    if provider_needs_chunking() else
+                    "Check that the JSON structure is valid and complete — "
+                    "no missing braces, quotes, or commas.\n"
+                )
+                + "Reply with a valid JSON object following the response schema."
             )
             continue
 
@@ -638,7 +656,7 @@ def run_agent_loop_plan(
             f"Task: {user_input}\n\n"
             f"Refined Goal: {planner_state.refined_goal}\n\n"
             f"Approved plan (execute ALL steps in order):\n{steps_str}\n\n"
-            f"REMINDER: For any file > 50 lines use append_chunk (≤50 lines per call).\n"
+            f"{_chunk_reminder_suffix()}"
             f"After completing ALL steps, call final_answer with a summary of what was done."
         )
     elif plan_steps:
@@ -647,7 +665,7 @@ def run_agent_loop_plan(
         task_prompt = (
             f"Task: {user_input}\n\n"
             f"Approved plan:\n{steps_str}\n\n"
-            "REMINDER: For any file > 50 lines use append_chunk (≤50 lines per call)."
+            f"{_chunk_reminder_suffix()}"
         )
     else:
         task_prompt = user_input
@@ -682,7 +700,7 @@ def run_agent_loop_autonomous(
         task_prompt = (
             f"Task: {user_input}\n\n"
             f"Approved plan:\n{steps_str}\n\n"
-            "REMINDER: For any file > 50 lines use append_chunk (≤50 lines per call)."
+            f"{_chunk_reminder_suffix()}"
         )
 
     return _run_agent_loop(

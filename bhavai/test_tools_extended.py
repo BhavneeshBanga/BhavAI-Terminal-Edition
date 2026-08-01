@@ -14,6 +14,7 @@ from bhavai.tools_extended import (
     check_dependencies,
     rename_path,
     fetch_url,
+    duckduckgo_search,
 )
 
 
@@ -268,6 +269,34 @@ def test_fetch_url_rejects_non_http_scheme():
 def test_fetch_url_rejects_file_scheme():
     result = fetch_url("file:///etc/passwd")
     assert "only http://" in result.lower()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# duckduckgo_search
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_duckduckgo_search_empty_query():
+    result = duckduckgo_search("")
+    assert "cannot be empty" in result.lower()
+
+
+def test_duckduckgo_search_fallback_or_live(monkeypatch):
+    # Mocking HTTP response for html.duckduckgo.com fallback
+    class MockResp:
+        def read(self):
+            return b'<html><body><a class="result__a" href="https://example.com">Example Title</a><div class="result__snippet">Example Snippet</div></body></html>'
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+
+    import urllib.request
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=12: MockResp())
+    
+    result = duckduckgo_search("test query", max_results=1)
+    assert "DuckDuckGo search results" in result
+    assert "Example Title" in result or "URL:" in result
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────

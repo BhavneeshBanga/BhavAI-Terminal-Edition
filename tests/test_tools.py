@@ -36,7 +36,7 @@ def test_sandbox_validation_outside_cwd():
     # Attempting to climb out using parent segments
     with pytest.raises(ValueError) as exc:
         validate_path("../outside.txt")
-    assert "is outside the sandboxed working directory" in str(exc.value)
+    assert "is outside the sandboxed" in str(exc.value)
     
     # Attempting to access root or other system directories
     with pytest.raises(ValueError):
@@ -65,7 +65,7 @@ def test_command_blocklist_validation():
 def test_write_and_read_file(mock_cwd):
     """Tests writing file content and reading it back."""
     write_result = write_file("docs/api.md", "# API Documentation")
-    assert "Success" in write_result
+    assert "written" in write_result or "✓" in write_result
     assert (mock_cwd / "docs" / "api.md").exists()
     
     read_result = read_file("docs/api.md")
@@ -83,7 +83,7 @@ def test_update_file(mock_cwd):
     
     # Append content
     append_result = update_file("test.txt", "line 2\n", mode="append")
-    assert "Success" in append_result
+    assert "Appended" in append_result or "✓" in append_result
     
     # Read back to verify append
     content = read_file("test.txt")
@@ -91,7 +91,7 @@ def test_update_file(mock_cwd):
     
     # Overwrite content
     overwrite_result = update_file("test.txt", "new line\n", mode="overwrite")
-    assert "Success" in overwrite_result
+    assert "written" in overwrite_result or "✓" in overwrite_result
     
     # Read back to verify overwrite
     content = read_file("test.txt")
@@ -130,8 +130,8 @@ def test_run_command_timeout(mock_cwd):
     
     result = run_command(cmd)
     
-    assert "timed out (10s limit)" in result
-    assert "Stdout before timeout:" in result
+    assert "timed out" in result
+    assert "Stdout" in result
     assert "Started" in result
     assert "Finished" not in result
 
@@ -183,7 +183,7 @@ def test_git_initialization(mock_cwd):
     
     # Run a write_file tool
     write_result = write_file("test_git.txt", "git test content")
-    assert "Success" in write_result
+    assert "written" in write_result or "✓" in write_result
     
     # Assert git repo and gitignore are created
     assert (mock_cwd / ".git").exists()

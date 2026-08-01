@@ -59,9 +59,11 @@ def _chunk_reminder_suffix() -> str:
         return ""
     return "REMINDER: For any file > 50 lines use append_chunk (≤50 lines per call).\n"
 
-MUTATING_TOOLS = {"write_file", "update_file", "append_chunk", "run_command",
-                  "replace_function", "insert_function", "replace_lines",
-                  "insert_lines", "delete_lines", "rename_path"}
+MUTATING_TOOLS = {"run_command"}
+
+# MUTATING_TOOLS = {"write_file", "update_file", "append_chunk", "run_command",
+#                   "replace_function", "insert_function", "replace_lines",
+#                   "insert_lines", "delete_lines", "rename_path"}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # System Prompt

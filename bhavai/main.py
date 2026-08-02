@@ -48,7 +48,7 @@ lists = [
     "💭 Do you know run bhav dev opens your browswer so that you can manage your config related keys",
     "💭 Do you know you can add your own custom skill in .bhavai/skills/<SKILL_NAME>/SKILL.md",
     "💭 Do you know plan mode ask you for every permission",
-
+    "💭 Do you know run (bhav update) you can download the latest version of BhavAI!",
         ]
 
 do_you_know = random.choice(lists)

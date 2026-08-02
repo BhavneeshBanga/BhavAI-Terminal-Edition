@@ -149,7 +149,7 @@ AVAILABLE TOOLS
 - replace_lines → {{"path": "string", "start_line": "int", "end_line": "int", "new_content": "string"}}
     Replaces an exact line range in ANY file (not limited to Python
     functions). Use get_outline / find_symbol / read_file_chunk first to
-    know the exact line numbers before calling this.
+    know the exact line numbers before calling this. you can edit multiple lines at once means start and end line might not be same.
 - insert_lines  → {{"path": "string", "after_line": "int", "content": "string"}}
     Inserts new content after a specific line number, in any file type.
     Use after_line=0 to insert at the very top of the file.

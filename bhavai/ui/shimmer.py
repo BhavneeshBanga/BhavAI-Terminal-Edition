@@ -83,7 +83,7 @@ class ShimmerStatus:
         start, end = -self.width, n + self.width
         total_steps = int((end - start) * self.steps_per_char)
         step = 0
-        with Live(console=console, refresh_per_second=120, transient=True) as live:
+        with Live(console=console, refresh_per_second=30, transient=True) as live:
             self._live = live
             while not self._stop_event.is_set():
                 center = start + (step / self.steps_per_char)

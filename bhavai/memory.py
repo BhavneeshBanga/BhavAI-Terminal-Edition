@@ -16,6 +16,12 @@ class ConversationMemory:
         self.messages.append({"role": role, "content": content})
         logger.debug("Memory added message from role: %s (length: %d)", role, len(content))
 
+    def add_image_message(self, role: str, text: str, image_paths: list[str]):
+        self.messages.append({
+            "role": role,
+            "content": text,
+            "images": image_paths,   # naya field
+        })
 
     def clear(self):
         """Clears memory."""

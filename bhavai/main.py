@@ -251,6 +251,16 @@ def wake(action):
     from prompt_toolkit.formatted_text import HTML
 
     session = PromptSession()
+    from bhavai.ui.clipboard_paste import build_paste_keybindings
+
+    pasted_images = []   # is turn mein jitni images paste hui unki list
+
+    def _record_pasted_image(path):
+        pasted_images.append(path)
+
+    paste_kb = build_paste_keybindings(CWD, on_image_pasted=_record_pasted_image)
+
+    session = PromptSession(key_bindings=paste_kb)
 
 
     def get_prompt_text():
@@ -358,6 +368,16 @@ def wake(action):
             prompt_label = f"[bold {mode_color}]({current_mode})[/bold {mode_color}] > "
             user_input = session.prompt(get_prompt_text).strip()
             # user_input = Prompt.ask(prompt_label).strip()
+
+            if pasted_images:
+                console.print(Panel(
+                    "\n".join(f"🖼  {p}" for p in pasted_images),
+                    title="[bold green]Image(s) pasted[/bold green]",
+                    border_style="green"
+                ))
+                # abhi ke liye bas confirm karna hai ki paste kaam kar raha hai
+                memory.add_image_message("user", user_input, pasted_images)
+                pasted_images.clear()
             
             if not user_input:
                 continue

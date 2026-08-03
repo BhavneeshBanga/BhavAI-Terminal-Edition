@@ -495,9 +495,9 @@ TOOL_DISPATCH = {
 # ensure_git_initialized / _git_stage FROM this module).
 # ─────────────────────────────────────────────────────────────────────────────
 
-# from bhavai.tools_extended import EXTENDED_TOOL_DISPATCH  # noqa: E402
+from bhavai.tools_extended import EXTENDED_TOOL_DISPATCH  # noqa: E402
 
-# TOOL_DISPATCH.update(EXTENDED_TOOL_DISPATCH)
+TOOL_DISPATCH.update(EXTENDED_TOOL_DISPATCH)
 
 
 

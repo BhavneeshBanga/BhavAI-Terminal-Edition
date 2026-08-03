@@ -18,7 +18,10 @@ dependencies = [
     "plyer>=2.1.0",
     "prompt_toolkit>=3.0.0",
     "requests>=2.31.0",
+    
     "packaging>=26.2",
+
+    "Pillow>=11.0.0",
 ]
 
 [project.optional-dependencies]

@@ -38,6 +38,43 @@ from bhavai.updater.updates import show_update_message
 from bhavai.banner.bhavai_agent import print_bhavai_agent
 
 
+
+import re
+import time
+
+
+
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    sys.stdin.reconfigure(encoding="utf-8", errors="replace")
+def expand_pasted_text(text: str, paste_store: dict) -> str:
+    pattern = re.compile(r"\[Pasted text #(\d+) \+\d+ lines\]")
+
+    def _replace(match):
+        idx = int(match.group(1))
+        return paste_store.get(idx, match.group(0))
+
+    return pattern.sub(_replace, text)
+
+
+
+
+def collapse_bursts_for_display(text: str, bursts: list, paste_store: dict, paste_counter: dict, threshold: int = 5) -> str:
+    display_text = text
+    for burst_text in bursts:
+        line_count = burst_text.count("\n") + 1
+        if line_count > threshold and burst_text in display_text:
+            paste_counter["n"] += 1
+            idx = paste_counter["n"]
+            paste_store[idx] = burst_text
+            placeholder = f"[Pasted text #{idx} +{line_count} lines]"
+            display_text = display_text.replace(burst_text, placeholder, 1)
+    return display_text
+
+
+
+
 lists = [
     "💭 Do you know you can insert images into your terminal",
     "💭 Do you know run /export command can export your entire session into .bhavai/memories/<NAME>.md",
@@ -129,7 +166,9 @@ def wake(action):
         console.print(f"[bold red]Error:[/bold red] Invalid action '{action}'. Did you mean [green]bhav wake up[/green]?")
         sys.exit(1)
 
-    
+    if sys.platform == "win32":
+        import subprocess
+        subprocess.run("chcp 65001", shell=True, stdout=subprocess.DEVNULL)
     # for first time setup
     # it create empty .bhavai folder in home directory
     BhavAI_dot_folder = Path.home() / ".bhavai"
@@ -261,7 +300,10 @@ def wake(action):
     def _record_pasted_image(path):
         pasted_images.append(path)
 
-    paste_kb = build_paste_keybindings(CWD, on_image_pasted=_record_pasted_image)
+    paste_kb, paste_store, paste_counter, get_and_reset_bursts = build_paste_keybindings(
+        CWD, on_image_pasted=_record_pasted_image
+    )
+    # paste_store: dict[int, str] = {}
 
     session = PromptSession(key_bindings=paste_kb)
 
@@ -369,8 +411,9 @@ def wake(action):
             # Styled prompt input
             mode_color = "cyan" if current_mode == AgentMode.PLAN else "yellow"
             prompt_label = f"[bold {mode_color}]({current_mode})[/bold {mode_color}] > "
+
             user_input = session.prompt(get_prompt_text).strip()
-            # user_input = Prompt.ask(prompt_label).strip()
+            user_input = expand_pasted_text(user_input, paste_store)
 
             if pasted_images:
                 console.print(Panel(
@@ -378,10 +421,9 @@ def wake(action):
                     title="[bold green]Image(s) pasted[/bold green]",
                     border_style="green"
                 ))
-                # abhi ke liye bas confirm karna hai ki paste kaam kar raha hai
                 memory.add_image_message("user", user_input, pasted_images)
                 pasted_images.clear()
-            
+
             if not user_input:
                 continue
 

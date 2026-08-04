@@ -2,6 +2,10 @@
 import time, httpx
 from bhavai.config import SARVAM_API_KEY, SARVAM_BASE_URL, SARVAM_MODEL, logger
 from bhavai.llm.base import LLMProvider
+from rich.console import Console
+
+console = Console()
+from rich.panel import Panel
 
 class SarvamProvider(LLMProvider):
     name = "sarvam"
@@ -80,10 +84,12 @@ class SarvamProvider(LLMProvider):
                     continue
     
                 else:
+                    # print("sarvam ki api wrong/expired hain ")
+                    # console.print("[bold red]Error:[/bold red] Missing command. "
+                    #             "Use [green]bhav wake up[/green] to activate the agent.")
                     raise RuntimeError(
                         f"Sarvam API non-retryable error {status}: {response.text[:300]}"
                     )
-    
             except httpx.RequestError as exc:
                 logger.warning(
                     "Sarvam API network error on attempt %d/%d: %s",

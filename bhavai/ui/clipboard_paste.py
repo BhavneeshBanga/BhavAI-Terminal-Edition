@@ -5,6 +5,7 @@ karke placeholder buffer mein insert karta hai, text hone par
 (ya text jo kisi image file ka path ho) uske hisaab se handle karta hai.
 """
 import uuid
+import time
 from pathlib import Path
 from typing import Optional
 import base64
@@ -45,18 +46,22 @@ def _looks_like_image_path(text: str) -> Optional[str]:
         pass
     return None
 
-
-def build_paste_keybindings(cwd: Path, on_image_pasted=None) -> KeyBindings:
+def build_paste_keybindings(cwd: Path, on_image_pasted=None, paste_line_threshold: int = 5) -> KeyBindings:
     """
     cwd            : project root, images yahan .bhavai/pasted_images mein save honge
-    on_image_pasted: optional callback(filepath) — future mein LLM route karne ke liye
+    on_image_pasted: optional callback(filepath)
+    paste_line_threshold: is line count se zyada hone par text collapse hoga
     """
     kb = KeyBindings()
     paste_dir = cwd / ".bhavai" / "pasted_images"
 
+    paste_store: dict[int, str] = {}
+    paste_counter = {"n": 0}
+
     @kb.add(Keys.BracketedPaste)
     def _(event):
         buf = event.app.current_buffer
+        text = (event.data or "").replace("\r\n", "\n").replace("\r", "\n")
 
         try:
             # Step 1: clipboard mein actual image bytes check karo
@@ -85,14 +90,22 @@ def build_paste_keybindings(cwd: Path, on_image_pasted=None) -> KeyBindings:
                         on_image_pasted(first)
                     return
 
-            # Step 2: koi image nahi mili — event.data mein pasted TEXT
-            # already available hai (bracketed paste isi tarah kaam karta hai)
-            text = event.data or ""
+            # Step 2: pasted text kisi image file ka path toh nahi?
             image_path = _looks_like_image_path(text)
             if image_path:
                 buf.insert_text(f"Pasted Image [{image_path}]")
                 if on_image_pasted:
                     on_image_pasted(image_path)
+                return
+
+            # Step 3: plain text — line count zyada hai toh collapse karo
+            line_count = text.count("\n") + 1
+            if line_count > paste_line_threshold:
+                paste_counter["n"] += 1
+                idx = paste_counter["n"]
+                paste_store[idx] = text
+                placeholder = f"[Pasted text #{idx} +{line_count} lines]"
+                buf.insert_text(placeholder)
             else:
                 buf.insert_text(text)
 
@@ -100,8 +113,14 @@ def build_paste_keybindings(cwd: Path, on_image_pasted=None) -> KeyBindings:
             # LAST RESORT: kuch bhi galat ho, kam se kam fallback paste toh ho
             logger.exception(f"paste handler crashed: {e}")
             try:
-                buf.insert_text(event.data or "")
+                buf.insert_text(text)
             except Exception:
                 pass
 
-    return kb
+    def get_and_reset_bursts():
+        # Bracketed paste handler upar hi collapse kar deta hai,
+        # isliye ab burst-based fallback ki zaroorat nahi — empty rakha
+        # hai sirf main.py ke saath backward-compat ke liye.
+        return []
+
+    return kb, paste_store, paste_counter, get_and_reset_bursts

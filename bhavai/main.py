@@ -39,16 +39,19 @@ from bhavai.banner.bhavai_agent import print_bhavai_agent
 
 
 lists = [
+    "💭 Do you know you can insert images into your terminal",
     "💭 Do you know run /export command can export your entire session into .bhavai/memories/<NAME>.md",
     "💭 Do you know run /init command make BHAVAI.md file specific to this folder",
     "💭 Do you know run /rename command rename the session",
     "💭 Do you know run ! <COMMAND> can be used for running bash commands",
     "💭 Do you know run /compact will summarize the entire conversation to free up context window",
+    "💭 Do you know you can insert images into your terminal",
     "💭 Do you know run bhav --help tell you about the BhavAI project",
     "💭 Do you know run bhav dev opens your browswer so that you can manage your config related keys",
     "💭 Do you know you can add your own custom skill in .bhavai/skills/<SKILL_NAME>/SKILL.md",
     "💭 Do you know plan mode ask you for every permission",
     "💭 Do you know run (bhav update) you can download the latest version of BhavAI!",
+    "💭 Do you know you can insert images into your terminal",
         ]
 
 do_you_know = random.choice(lists)

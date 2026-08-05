@@ -37,7 +37,7 @@ from bhavai.llm import query_llm_with_continuation, provider_needs_chunking
 from bhavai.memory import ConversationMemory
 from bhavai.tools import TOOL_DISPATCH, get_project_memory_string
 from bhavai.skill_getter import discover_skills_from_dot_bhavai
-from bhavai.llm import query_llm_with_continuation, provider_needs_chunking
+
 
 
 
@@ -204,6 +204,10 @@ STRICT RULES  (never break these)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RESPONSE FORMAT  (raw JSON only — no markdown fences, no extra text)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CRITICAL: You MUST respond with raw JSON ONLY.
+NEVER use <tool_call>, <arg_key>, <arg_value> or ANY XML-like tags.
+NEVER wrap your response in XML syntax of any kind.
+Your ENTIRE response must be a single JSON object with NO text before or after it:
 {{
   "thought": "brief reasoning about what you are about to do",
   "tool_name": "one of the tool names above",
@@ -213,6 +217,12 @@ RESPONSE FORMAT  (raw JSON only — no markdown fences, no extra text)
 }}
 
 Inside JSON strings:  newline → \\n   quote → \\"   backslash → \\\\
+
+EXAMPLE of CORRECT response:
+{{"thought": "I will read the file first", "tool_name": "read_file", "tool_args": {{"path": "main.py"}}}}
+
+EXAMPLE of WRONG response (DO NOT DO THIS):
+<tool_call>read_file\n<arg_key>path</arg_key>\n<arg_value>main.py</arg_value>\n</tool_call>
 """
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -345,11 +355,74 @@ def clean_json_text(raw_text: str) -> str:
     return text
 
 
+def _parse_tool_call_tags(text: str) -> dict | None:
+    """
+    Parse <tool_call> XML-style format that Sarvam-105B sometimes emits.
+    Returns a dict like {"thought": "...", "tool_name": "...", "tool_args": {...}}
+    or None if the format doesn't match.
+    """
+    tc_match = re.search(r'<tool_call>\s*(.*?)\s*</tool_call>', text, re.DOTALL)
+    if not tc_match:
+        return None
+
+    body = tc_match.group(1).strip()
+    # First non-tag line is the tool name
+    lines = body.split('\n')
+    tool_name = lines[0].strip() if lines else ""
+
+    # Extract all arg_key/arg_value pairs
+    keys   = re.findall(r'<arg_key>(.*?)</arg_key>', body, re.DOTALL)
+    values = re.findall(r'<arg_value>(.*?)</arg_value>', body, re.DOTALL)
+
+    if not tool_name or len(keys) != len(values):
+        return None
+
+    tool_args = {}
+    for k, v in zip(keys, values):
+        k = k.strip()
+        v = v.strip()
+        # Handle boolean/numeric values
+        if v.lower() == 'true':
+            v = True
+        elif v.lower() == 'false':
+            v = False
+        else:
+            try:
+                v = int(v)
+            except ValueError:
+                try:
+                    v = float(v)
+                except ValueError:
+                    pass  # keep as string
+        tool_args[k] = v
+
+    # Try to extract thought from <think> tags or before <tool_call>
+    thought = ""
+    think_match = re.search(r'<think>(.*?)</think>', text, re.DOTALL)
+    if think_match:
+        thought = think_match.group(1).strip()
+
+    logger.info("_parse_tool_call_tags: parsed XML tool_call → %s(%s)", tool_name, list(tool_args.keys()))
+    return {
+        "thought": thought,
+        "tool_name": tool_name,
+        "tool_args": tool_args,
+    }
+
+
 def parse_llm_json(raw_text: str) -> dict:
     """
     Parses LLM output into a dict.
+    Tries XML <tool_call> tag format first (Sarvam-105B fallback),
+    then falls back to JSON parsing.
     Raises ValueError with an actionable message on failure.
     """
+    # ── Layer 0: try XML tag format (Sarvam-105B often uses this) ──
+    xml_result = _parse_tool_call_tags(raw_text)
+    if xml_result:
+        return xml_result
+
+    # ── Layer 1: standard JSON pipeline ──
     cleaned = clean_json_text(raw_text)
     logger.debug("parse_llm_json cleaned: %r", cleaned[:400])
 
@@ -504,20 +577,18 @@ def _run_agent_loop(
             memory.add_message("assistant", raw_response)
             memory.add_message(
                 "user",
-                f"ERROR: Your response could not be parsed as JSON.\n"
+                f"ERROR: Your response could not be parsed.\n"
                 f"Reason: {explanation}\n\n"
+                "CRITICAL: You MUST reply with a raw JSON object ONLY.\n"
+                "DO NOT use <tool_call>, <arg_key>, <arg_value> or any XML tags.\n"
+                "Your ENTIRE response must be exactly this format:\n"
+                '{"thought": "your reasoning", "tool_name": "tool_name_here", '
+                '"tool_args": {"arg1": "value1"}}\n\n'
                 + (
-                    "This almost always means your response was cut off at the 4096-token limit.\n"
-                    "ACTION REQUIRED:\n"
-                    "  • Do NOT retry the same large write_file call.\n"
-                    "  • Use append_chunk instead with ≤50 lines per chunk.\n"
-                    "  • First chunk: append_chunk path=... chunk='<lines 1-50>' done=false\n"
-                    "  • Continue until the file is complete, then set done=true.\n"
-                    if provider_needs_chunking() else
-                    "Check that the JSON structure is valid and complete — "
-                    "no missing braces, quotes, or commas.\n"
+                    "If writing a large file, use append_chunk with ≤50 lines per chunk.\n"
+                    if provider_needs_chunking() else ""
                 )
-                + "Reply with a valid JSON object following the response schema."
+                + "Reply now with a valid JSON object. No XML. No markdown fences."
             )
             continue
 

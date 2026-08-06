@@ -169,6 +169,23 @@ AVAILABLE TOOLS
     Restores a file to its last git-committed state — the undo button for
     write_file / append_chunk / replace_lines / insert_lines / delete_lines.
     Use this if a change you just made turns out to be wrong.
+- patch_file    → {{"path": "string", "search_text": "string", "replace_text": "string", "occurrence": "int (default 1, 0=all)"}}
+    Search-and-replace: finds `search_text` in the file and replaces it with
+    `replace_text`. No line numbers needed — just specify the exact text to
+    find (must match EXACTLY including whitespace). Use occurrence=0 to
+    replace all matches. This is often FASTER than replace_lines because you
+    don't need to look up line numbers first.
+- create_directory → {{"path": "string"}}
+    Creates a directory (and parent dirs) inside CWD. Idempotent — silently
+    succeeds if it already exists. Use to scaffold project structure before
+    writing files (e.g. src/, tests/, docs/).
+- git_commit    → {{"message": "string"}}
+    Stages all changes and creates a git commit with a descriptive message.
+    Use after completing a logical unit of work for clean commit history.
+- read_image    → {{"path": "string", "include_base64": "bool (default false)"}}
+    Returns image metadata (dimensions, format, file size) for image files.
+    Supports PNG, JPEG, GIF, BMP, WebP, SVG, ICO without requiring Pillow.
+    Set include_base64=true to get base64 data URI (for vision models).
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 STRICT RULES  (never break these)
@@ -200,6 +217,11 @@ STRICT RULES  (never break these)
 13. After making a code change, run run_tests (if a test suite exists) before calling
     final_answer. If a change breaks something, use revert_file to undo it rather than
     trying to manually patch it back.
+14. For simple text edits (changing a variable, fixing a typo, updating a string), prefer
+    patch_file over replace_lines — it doesn't require line numbers so it's faster.
+15. After completing a logical unit of work (feature, bugfix, refactor), use git_commit to
+    create a named commit. Don't leave everything as unstaged changes.
+16. Use create_directory to scaffold folder structure BEFORE writing files into those folders.
 {token_budget_block}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RESPONSE FORMAT  (raw JSON only — no markdown fences, no extra text)

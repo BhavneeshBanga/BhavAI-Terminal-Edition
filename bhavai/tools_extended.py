@@ -1139,18 +1139,300 @@ def revert_file(path: str) -> str:
     return f"✓ '{path}' reverted to last committed state."
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Tool: patch_file — search-and-replace editing, no line numbers needed.
+#
+# This is the single most important edit primitive for an LLM agent.
+# Instead of requiring the agent to figure out exact line numbers (which
+# needs get_outline → read_file_chunk → replace_lines = 3 calls), it
+# just says "find THIS text, replace with THAT". One call, done.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def patch_file(path: str, search_text: str, replace_text: str,
+               occurrence: int = 1) -> str:
+    """
+    Finds `search_text` in a file and replaces it with `replace_text`.
+    No line numbers needed — the agent just specifies the exact text to
+    find and what to replace it with.
+
+    Parameters
+    ----------
+    path         : File path relative to CWD.
+    search_text  : The exact text to find (multi-line supported — use \n).
+                   Must match EXACTLY including whitespace/indentation.
+    replace_text : The replacement text. Use empty string to delete.
+    occurrence   : Which occurrence to replace (1 = first, 2 = second, …).
+                   Default 1. Use 0 to replace ALL occurrences.
+
+    Returns
+    -------
+    Success message with char counts, or error if search_text not found.
+    """
+    logger.info("patch_file('%s', search=%d chars, replace=%d chars, occ=%d)",
+                path, len(search_text), len(replace_text), occurrence)
+    ensure_git_initialized()
+    resolved = validate_path(path)
+
+    if is_env_file(resolved):
+        return f"Access Denied: '{path}' is an environment/secrets file."
+    if not resolved.exists():
+        return f"Error: '{path}' does not exist."
+    if not resolved.is_file():
+        return f"Error: '{path}' is a directory."
+
+    try:
+        content = resolved.read_text(encoding="utf-8")
+    except Exception as exc:
+        return f"Error reading '{path}': {exc}"
+
+    count = content.count(search_text)
+    if count == 0:
+        return (f"Error: search_text not found in '{path}'. "
+                f"Make sure the text matches EXACTLY including whitespace and indentation.")
+
+    if occurrence == 0:
+        # Replace ALL occurrences
+        updated = content.replace(search_text, replace_text)
+        replaced_count = count
+    else:
+        if occurrence > count:
+            return (f"Error: only {count} occurrence(s) of search_text found in '{path}', "
+                    f"but you asked for occurrence #{occurrence}.")
+        # Replace the Nth occurrence
+        parts = content.split(search_text)
+        # Rejoin: keep first `occurrence` parts joined with search_text,
+        # insert replace_text at the split point, rejoin the rest with search_text
+        before = search_text.join(parts[:occurrence])
+        after = search_text.join(parts[occurrence:])
+        updated = before + replace_text + after
+        replaced_count = 1
+
+    try:
+        resolved.write_text(updated, encoding="utf-8")
+        _git_stage(resolved)
+    except Exception as exc:
+        logger.error("patch_file('%s'): %s", path, exc)
+        return f"Error writing '{path}': {exc}"
+
+    action = "deleted" if not replace_text else "replaced"
+    return (f"✓ {replaced_count} occurrence(s) {action} in '{path}'. "
+            f"Run `git diff HEAD` to review.")
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Tool: create_directory — explicit directory scaffolding.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def create_directory(path: str) -> str:
+    """
+    Creates a directory (and any missing parent directories) inside CWD.
+
+    Use this to scaffold project structure (e.g. src/, tests/, docs/)
+    before writing files into them. Silently succeeds if the directory
+    already exists (idempotent).
+    """
+    logger.info("create_directory('%s')", path)
+    resolved = validate_path(path)
+
+    if resolved.exists() and resolved.is_dir():
+        return f"✓ Directory '{path}' already exists."
+    if resolved.exists() and resolved.is_file():
+        return f"Error: '{path}' already exists as a file, cannot create directory."
+
+    try:
+        resolved.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:
+        logger.error("create_directory('%s'): %s", path, exc)
+        return f"Error creating directory '{path}': {exc}"
+
+    return f"✓ Directory '{path}' created."
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Tool: git_commit — meaningful commit messages instead of auto-staging only.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def git_commit(message: str) -> str:
+    """
+    Stages all changes and creates a git commit with the given message.
+
+    Use this after completing a logical unit of work (e.g. "Added login
+    endpoint", "Fixed CSS layout bug") to create a clean commit history.
+    The auto-staging that happens on every write_file/append_chunk is
+    still there — this tool just wraps it into a named commit.
+    """
+    logger.info("git_commit('%s')", message[:80])
+    ensure_git_initialized()
+
+    if not message or not message.strip():
+        return "Error: commit message cannot be empty."
+
+    try:
+        # Stage everything first
+        proc_add = subprocess.run(
+            ["git", "add", "."],
+            cwd=CWD, capture_output=True, text=True, timeout=10,
+        )
+        if proc_add.returncode != 0:
+            return f"Error: git add failed: {proc_add.stderr.strip()}"
+
+        # Commit
+        proc_commit = subprocess.run(
+            ["git", "commit", "-m", message.strip()],
+            cwd=CWD, capture_output=True, text=True, timeout=10,
+        )
+        if proc_commit.returncode != 0:
+            stderr = proc_commit.stderr.strip()
+            stdout = proc_commit.stdout.strip()
+            if "nothing to commit" in (stderr + stdout).lower():
+                return "No changes to commit — working tree is clean."
+            return f"Error: git commit failed: {stderr or stdout}"
+
+        return f"✓ Committed: {message.strip()}\n{proc_commit.stdout.strip()}"
+
+    except subprocess.TimeoutExpired:
+        return "Error: git commit timed out."
+    except Exception as exc:
+        return f"Error during git commit: {exc}"
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Tool: read_image — image metadata + base64 for vision-capable models.
+#
+# Returns image metadata (dimensions, format, size) always, and optionally
+# the base64-encoded content if the model can handle vision inputs.
+# For text-only models this still gives useful info ("the image is 1920x1080
+# PNG, 2.3 MB") which helps the agent reason about assets.
+# ─────────────────────────────────────────────────────────────────────────────
+
+import base64
+import imghdr
+import struct
 
 
+def _get_image_dimensions(file_path: Path) -> tuple[int, int] | None:
+    """
+    Reads image dimensions WITHOUT requiring Pillow.
+    Supports PNG, JPEG, GIF, BMP. Returns (width, height) or None.
+    """
+    try:
+        with open(file_path, "rb") as f:
+            header = f.read(32)
+            if len(header) < 8:
+                return None
+
+            # PNG
+            if header[:8] == b"\x89PNG\r\n\x1a\n":
+                w, h = struct.unpack(">II", header[16:24])
+                return (w, h)
+
+            # JPEG
+            if header[:2] == b"\xff\xd8":
+                f.seek(0)
+                f.read(2)  # skip SOI
+                while True:
+                    marker, = struct.unpack(">H", f.read(2))
+                    if marker == 0xFFD9:  # EOI
+                        break
+                    if 0xFFC0 <= marker <= 0xFFC3:  # SOF markers
+                        f.read(3)  # length + precision
+                        h, w = struct.unpack(">HH", f.read(4))
+                        return (w, h)
+                    else:
+                        length, = struct.unpack(">H", f.read(2))
+                        f.read(length - 2)
+                return None
+
+            # GIF
+            if header[:6] in (b"GIF87a", b"GIF89a"):
+                w, h = struct.unpack("<HH", header[6:10])
+                return (w, h)
+
+            # BMP
+            if header[:2] == b"BM":
+                w, h = struct.unpack("<II", header[18:26])
+                return (w, abs(h))  # height can be negative in BMP
+
+    except Exception:
+        return None
+    return None
 
 
+def read_image(path: str, include_base64: bool = False) -> str:
+    """
+    Returns metadata about an image file (dimensions, format, file size).
 
+    Parameters
+    ----------
+    path            : Image file path relative to CWD.
+    include_base64  : If True, also returns the base64-encoded image data
+                      (for passing to vision-capable LLMs). Default False
+                      to avoid blowing up context on text-only models.
 
+    Supported formats: PNG, JPEG, GIF, BMP, WebP, SVG, ICO.
+    Does NOT require Pillow — uses stdlib only.
+    """
+    logger.info("read_image('%s', include_base64=%s)", path, include_base64)
+    resolved = validate_path(path)
+
+    if not resolved.exists():
+        return f"Error: '{path}' does not exist."
+    if not resolved.is_file():
+        return f"Error: '{path}' is a directory."
+
+    IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg", ".ico"}
+    if resolved.suffix.lower() not in IMAGE_EXTENSIONS:
+        return (f"Error: '{path}' does not appear to be an image file. "
+                f"Supported: {', '.join(sorted(IMAGE_EXTENSIONS))}")
+
+    try:
+        file_size = resolved.stat().st_size
+    except Exception as exc:
+        return f"Error reading '{path}': {exc}"
+
+    # Get format from extension (more reliable than imghdr for webp/svg)
+    fmt = resolved.suffix.lstrip(".").upper()
+    if fmt == "JPG":
+        fmt = "JPEG"
+
+    # Get dimensions (works for PNG, JPEG, GIF, BMP without Pillow)
+    dims = _get_image_dimensions(resolved)
+    dims_str = f"{dims[0]}×{dims[1]}" if dims else "unknown"
+
+    # Human-readable file size
+    if file_size < 1024:
+        size_str = f"{file_size} B"
+    elif file_size < 1024 * 1024:
+        size_str = f"{file_size / 1024:.1f} KB"
+    else:
+        size_str = f"{file_size / (1024 * 1024):.1f} MB"
+
+    info = (
+        f"Image: {path}\n"
+        f"Format: {fmt}\n"
+        f"Dimensions: {dims_str}\n"
+        f"File size: {size_str}"
+    )
+
+    if include_base64:
+        MAX_BASE64_SIZE = 5 * 1024 * 1024  # 5 MB limit
+        if file_size > MAX_BASE64_SIZE:
+            info += f"\n\n(base64 skipped — file exceeds {MAX_BASE64_SIZE // (1024*1024)} MB limit)"
+        else:
+            try:
+                raw = resolved.read_bytes()
+                b64 = base64.b64encode(raw).decode("ascii")
+                mime = {
+                    "PNG": "image/png", "JPEG": "image/jpeg",
+                    "GIF": "image/gif", "BMP": "image/bmp",
+                    "WEBP": "image/webp", "SVG": "image/svg+xml",
+                    "ICO": "image/x-icon",
+                }.get(fmt, "application/octet-stream")
+                info += f"\n\nBase64 (data URI):\ndata:{mime};base64,{b64}"
+            except Exception as exc:
+                info += f"\n\n(base64 encoding failed: {exc})"
+
+    return info
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1181,6 +1463,11 @@ EXTENDED_TOOL_DISPATCH = {
     "lint_file":            lint_file,
     "revert_file":          revert_file,
 
+    # ── New tools (v3) ──────────────────────────────────────────────
+    "patch_file":           patch_file,
+    "create_directory":     create_directory,
+    "git_commit":           git_commit,
+    "read_image":           read_image,
 }
 
 from bhavai.config import CWD, logger

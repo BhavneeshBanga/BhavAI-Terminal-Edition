@@ -360,7 +360,24 @@ def append_chunk(path: str, chunk: str, done: bool = False) -> str:
 # Tool: run_command
 # ─────────────────────────────────────────────────────────────────────────────
 import subprocess, sys, threading, os
+MAX_LINES = 40  # ya jo bhi limit chahiye, k value
 
+def _truncate_output(output_lines: list, max_lines: int = MAX_LINES) -> str:
+    total = len(output_lines)
+    if total <= max_lines:
+        return "".join(output_lines)
+
+    head_count = max_lines // 2
+    tail_count = max_lines - head_count
+
+    head = "".join(output_lines[:head_count])
+    tail = "".join(output_lines[-tail_count:])
+
+    return (
+        head
+        + f"\n... [{total - max_lines} lines omitted] ...\n\n"
+        + tail
+    )
 def run_command(command: str) -> str:
     """
     Runs a shell command inside CWD with a 30-second timeout.
@@ -409,7 +426,8 @@ def run_command(command: str) -> str:
 
         t.join()
         exit_code = proc.returncode
-        full_output = "".join(output_lines)
+        # full_output = "".join(output_lines)
+        full_output = _truncate_output(output_lines)
 
         if full_output:
             result = full_output

@@ -2,6 +2,11 @@ click>=8.0.0
 rich>=13.0.0
 python-dotenv>=1.0.0
 httpx>=0.24.0
+plyer>=2.1.0
+prompt_toolkit>=3.0.0
+requests>=2.31.0
+packaging>=26.2
+Pillow>=11.0.0
 
 [dev]
 pytest>=7.0.0

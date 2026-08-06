@@ -359,7 +359,8 @@ def append_chunk(path: str, chunk: str, done: bool = False) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 # Tool: run_command
 # ─────────────────────────────────────────────────────────────────────────────
-import subprocess, sys, threading
+import subprocess, sys, threading, os
+
 def run_command(command: str) -> str:
     """
     Runs a shell command inside CWD with a 30-second timeout.
@@ -374,9 +375,10 @@ def run_command(command: str) -> str:
     output_lines = []
 
     def stream_reader(pipe):
+        # errors='replace' already set on the pipe via Popen, so ye safe hai
         for line in iter(pipe.readline, ""):
             if line:
-                print(line, end="")   # live terminal me dikhega
+                print(line, end="")
                 output_lines.append(line)
         pipe.close()
 
@@ -385,6 +387,9 @@ def run_command(command: str) -> str:
             command, shell=True, cwd=CWD,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, bufsize=1,
+            encoding="utf-8",     # 👈 force UTF-8, cp1252 guess mat karo
+            errors="replace",     # 👈 invalid byte aaye toh crash nahi, replace ho jayega
+            env={**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"},  # 👈 child process ko bhi utf-8 force karo
         )
 
         t = threading.Thread(target=stream_reader, args=(proc.stdout,))

@@ -38,9 +38,140 @@ from bhavai.updater.updates import show_update_message
 from bhavai.banner.bhavai_agent import print_bhavai_agent
 
 
-
+import os
 import re
 import time
+
+import json
+from prompt_toolkit.application import Application
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.layout import Layout
+from prompt_toolkit.layout.containers import Window
+from prompt_toolkit.layout.controls import FormattedTextControl
+
+TRUST_FILE = Path.home() / ".bhavai" / "trusted_folders.json"
+
+
+def _load_trusted_folders() -> list:
+    if TRUST_FILE.exists():
+        try:
+            return json.loads(TRUST_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            return []
+    return []
+
+
+def _save_trusted_folder(path_str: str) -> None:
+    trusted = _load_trusted_folders()
+    if path_str not in trusted:
+        trusted.append(path_str)
+        TRUST_FILE.parent.mkdir(parents=True, exist_ok=True)
+        TRUST_FILE.write_text(json.dumps(trusted, indent=2), encoding="utf-8")
+
+
+def is_folder_trusted(cwd: Path) -> bool:
+    trusted = _load_trusted_folders()
+    cwd_str = str(cwd.resolve())
+    return any(
+        cwd_str == t or cwd_str.startswith(t.rstrip("/\\") + os.sep)
+        for t in trusted
+    )
+
+
+def _inline_arrow_menu(options: list) -> int:
+    """
+    Lightweight inline arrow-key menu — full screen NAHI, terminal ke normal
+    flow mein render hota hai. Enter dabate hi turant selected index return
+    karta hai, koi separate 'Ok' button nahi.
+    Returns selected index, ya None agar Esc/Ctrl-C dabaya.
+    """
+    selected = {"idx": 0}
+    result = {"value": None}
+
+    def get_text():
+        lines = []
+        for i, opt in enumerate(options):
+            if i == selected["idx"]:
+                lines.append(("class:selected", f"  ● {opt}\n"))
+            else:
+                lines.append(("class:normal", f"    {opt}\n"))
+        return lines
+
+    kb = KeyBindings()
+
+    @kb.add("up")
+    def _(event):
+        selected["idx"] = (selected["idx"] - 1) % len(options)
+
+    @kb.add("down")
+    def _(event):
+        selected["idx"] = (selected["idx"] + 1) % len(options)
+
+    @kb.add("enter")
+    def _(event):
+        result["value"] = selected["idx"]
+        event.app.exit()
+
+    @kb.add("c-c")
+    @kb.add("escape")
+    def _(event):
+        result["value"] = None
+        event.app.exit()
+
+    from prompt_toolkit.styles import Style
+    style = Style.from_dict({
+        "selected": "#33cc33 bold",
+        "normal": "#aaaaaa",
+    })
+
+    app = Application(
+        layout=Layout(Window(FormattedTextControl(get_text))),
+        key_bindings=kb,
+        style=style,
+        full_screen=False,
+        mouse_support=False,
+    )
+    app.run()
+    return result["value"]
+
+
+def prompt_trust_folder(console: Console, cwd: Path) -> bool:
+    """
+    BhavAI ka trust-check — screenshot jaisa inline box, Enter se turant confirm.
+    Return True = trust ho gaya, False = 'Don't trust' ya cancel (exit).
+    """
+    folder_name = cwd.name
+    parent_name = cwd.parent.name
+
+    console.print(Panel(
+        "[bold white]Do you trust the files in this folder?[/bold white]\n\n"
+        "Trusting a folder allows BhavAI to load its local configurations,\n"
+        "including custom commands, skills, and settings. These configurations\n"
+        "could execute code on your behalf or change BhavAI's behavior.",
+        title="[bold green]BhavAI - Trust Check[/bold green]",
+        border_style="green",
+        padding=(1, 2),
+    ))
+
+    options = [
+        f"Trust folder ({folder_name})",
+        f"Trust parent folder ({parent_name})",
+        "Don't trust",
+    ]
+
+    choice = _inline_arrow_menu(options)
+
+    if choice is None or choice == 2:
+        return False
+
+    if choice == 0:
+        time.sleep(1)
+        _save_trusted_folder(str(cwd.resolve()))
+    elif choice == 1:
+        _save_trusted_folder(str(cwd.parent.resolve()))
+
+    return True
+
 
 
 
@@ -174,6 +305,18 @@ def wake(action):
     BhavAI_dot_folder = Path.home() / ".bhavai"
     if not BhavAI_dot_folder.exists():
         BhavAI_dot_folder.mkdir()
+
+    if not is_folder_trusted(CWD):
+        trusted_now = prompt_trust_folder(console, CWD)
+        if not trusted_now:
+            console.print(Panel(
+                "[bold red]Folder not trusted.[/bold red]\n"
+                "BhavAI ko is folder mein chalane ke liye trust karna zaroori hai.",
+                title="BhavAI - Access Denied",
+                border_style="red"
+            ))
+            sys.exit(1)
+    cfg = get_config_summary()
 
 
     # it loads the config related configuration

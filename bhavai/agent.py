@@ -241,6 +241,7 @@ Your ENTIRE response must be a single JSON object with NO text before or after i
 Inside JSON strings:  newline → \\n   quote → \\"   backslash → \\\\
 
 EXAMPLE of CORRECT response:
+return the response strictly in json format
 {{"thought": "I will read the file first", "tool_name": "read_file", "tool_args": {{"path": "main.py"}}}}
 
 EXAMPLE of WRONG response (DO NOT DO THIS):

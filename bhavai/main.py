@@ -7,6 +7,9 @@ bhav wake up
 ```
 in terminal to use this project
 """
+from __future__ import annotations
+
+
 import click
 import sys
 from pathlib import Path

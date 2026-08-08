@@ -48,9 +48,9 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout
 from prompt_toolkit.layout.containers import Window
 from prompt_toolkit.layout.controls import FormattedTextControl
+from bhavai.config_commands import config_group
 
 TRUST_FILE = Path.home() / ".bhavai" / "trusted_folders.json"
-
 
 def _load_trusted_folders() -> list:
     if TRUST_FILE.exists():
@@ -320,7 +320,7 @@ def wake(action):
 
 
     # it loads the config related configuration
-    cfg = get_config_summary()
+    # cfg = get_config_summary()
     
     # Check for API key
     if not cfg["API_KEY_PRESENT"]:
@@ -865,7 +865,7 @@ def update():
     webbrowser.open("https://github.com/BhavneeshBanga/Terminal-agent")
     
 
-
+main.add_command(config_group)
 
 if __name__ == "__main__":
     main()

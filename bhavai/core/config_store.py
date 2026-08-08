@@ -8,6 +8,8 @@ Package-level config & API key management.
 - CONFIG_FILE (~/.bhavai/config_file.json) sirf metadata / future use
   ke liye rakha hai (e.g. kaunse projects mein bhavai use hua).
 """
+from __future__ import annotations
+
 import json
 from pathlib import Path
 

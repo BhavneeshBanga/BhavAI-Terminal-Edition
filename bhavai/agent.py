@@ -240,11 +240,66 @@ Your ENTIRE response must be a single JSON object with NO text before or after i
 
 Inside JSON strings:  newline → \\n   quote → \\"   backslash → \\\\
 
-EXAMPLE of CORRECT response:
-{{"thought": "I will read the file first", "tool_name": "read_file", "tool_args": {{"path": "main.py"}}}}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RESPONSE FORMAT  (raw JSON only — no markdown fences, no extra text)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CRITICAL: You MUST respond with raw JSON ONLY.
+Your ENTIRE response must be a single JSON object with NO text before or after it:
+{{
+  "thought": "brief reasoning about what you are about to do",
+  "tool_name": "one of the tool names above",
+  "tool_args": {{
+    "arg_name": "arg_value"
+  }}
+}}
 
-EXAMPLE of WRONG response (DO NOT DO THIS):
-<tool_call>read_file\n<arg_key>path</arg_key>\n<arg_value>main.py</arg_value>\n</tool_call>
+Inside JSON strings:  newline → \\n   quote → \\"   backslash → \\\\
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DO NOT USE XML / ChatML TOOL-CALL SYNTAX
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+You may have been trained on a DIFFERENT agent framework that uses tags like
+<tool_call>, <arg_key>, <arg_value>, <function_call>, <invoke>, <parameter>,
+or similar XML/ChatML-style wrappers. BhavAI does NOT use that format.
+If you output ANY of those tags, your response will FAIL to parse and the
+task will be aborted. There is no fallback parser for XML — JSON is the ONLY
+accepted format, always.
+
+Example 1 — reading a file
+ WRONG (XML — will be REJECTED, do not do this):
+<tool_call>read_file
+<arg_key>path</arg_key>
+<arg_value>planner.json</arg_value>
+</tool_call>
+
+ CORRECT (JSON — always do this):
+{{"thought": "I need to check planner.json to see the current plan state", "tool_name": "read_file", "tool_args": {{"path": "planner.json"}}}}
+
+Example 2 — running a shell command
+ WRONG (XML — will be REJECTED, do not do this):
+<function_call>
+  <invoke name="run_command">
+    <parameter name="command">git status</parameter>
+  </invoke>
+</function_call>
+
+ CORRECT (JSON — always do this):
+{{"thought": "Checking current git status before making changes", "tool_name": "run_command", "tool_args": {{"command": "git status"}}}}
+
+Example 3 — finishing the task
+ WRONG (XML — will be REJECTED, do not do this):
+<tool_call>final_answer
+<arg_key>answer</arg_key>
+<arg_value>Done, fixed the bug.</arg_value>
+</tool_call>
+
+ CORRECT (JSON — always do this):
+{{"thought": "The fix has been applied and tests pass", "tool_name": "final_answer", "tool_args": {{"answer": "Done, fixed the bug."}}}}
+
+BEFORE you send your response, silently check: "Does my output start with '{{' and
+end with '}}', with no '<' anywhere in it?" If not, rewrite it as JSON before
+sending.
+{token_budget_block}
 """
 
 # ─────────────────────────────────────────────────────────────────────────────

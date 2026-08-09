@@ -1,14 +1,14 @@
-# Future Mein Naya LLM Provider Kaise Add Karein
+# How to Add a New LLM Provider in the Future
 
-Bilkul simple hai — bas 4 steps, aur kahin bhi existing code touch nahi karna padta. Chalo ek real example lete hain: maan lo tumhe **OpenAI** add karna hai.
+It's simple — just 4 steps, and you don't need to touch any existing code anywhere. Let's take a real example: suppose you want to add **OpenAI**.
 
-## Step 1: `.env` mein naya key add karo
+## Step 1: Add a new key in `.env`
 
 ```
 OPENAI_API_KEY=sk-xxxxx
 ```
 
-`bhavai/config.py` mein ek line add karo (yeh already existing pattern hai, tumne khud dekha hai Sarvam/Groq ke liye):
+Add a line in `bhavai/config.py` (this is already an existing pattern, you've seen it yourself for Sarvam/Groq):
 
 ```python
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -16,9 +16,9 @@ OPENAI_BASE_URL = "https://api.openai.com/v1"
 OPENAI_MODEL = "gpt-4o-mini"
 ```
 
-**Kyun yahan:** secrets/config values `config.py` (.env-backed) mein hi rehte hain — humne decide kiya tha ki `config.json` sirf provider selection ke liye hai, keys ke liye nahi.
+**Why here:** secrets/config values live in `config.py` (.env-backed) — we decided that `config.json` is only for provider selection, not for keys.
 
-## Step 2: Naya provider file banao — `bhavai/llm/providers/openai.py`
+## Step 2: Create a new provider file — `bhavai/llm/providers/openai.py`
 
 ```python
 import httpx, time
@@ -27,8 +27,8 @@ from bhavai.llm.base import LLMProvider
 
 class OpenAIProvider(LLMProvider):
     name = "openai"
-    max_output_tokens = 16384          # OpenAI ka actual output limit daalo
-    needs_chunking_instruction = False  # ya True, jitna zaroorat ho
+    max_output_tokens = 16384          # put OpenAI's actual output limit here
+    needs_chunking_instruction = False  # or True, as needed
 
     def call(self, messages: list, temperature: float = 0.0, calls: int = 0) -> tuple[str, str]:
         if not OPENAI_API_KEY:
@@ -43,8 +43,8 @@ class OpenAIProvider(LLMProvider):
             "max_tokens": self.max_output_tokens,
         }
 
-        # yahan wahi retry/backoff pattern paste karo jo Sarvam/Groq mein hai
-        # (max_retries=3, exponential backoff, 429/5xx pe retry)
+        # paste the same retry/backoff pattern here that's in Sarvam/Groq
+        # (max_retries=3, exponential backoff, retry on 429/5xx)
         with httpx.Client(timeout=90.0) as client:
             response = client.post(url, json=payload, headers=headers)
 
@@ -52,47 +52,45 @@ class OpenAIProvider(LLMProvider):
         content = data["choices"][0]["message"]["content"]
         stop_reason = data["choices"][0].get("finish_reason", "stop")
 
-        # OpenAI ka truncation-signal naam check karo aur "max_tokens" mein normalize karo
+        # check OpenAI's truncation-signal name and normalize it to "max_tokens"
         return content, stop_reason
 ```
 
-**Kyun `LLMProvider` extend karo:** `base.py` ka contract force karta hai ki tum `name`, `max_output_tokens`, `needs_chunking_instruction`, aur `call()` — yeh 4 cheezein zaroor define karo. Agar koi chhoot gayi, Python khud error dega (kyunki `call` ek `@abstractmethod` hai).
+**Why extend `LLMProvider`:** the `base.py` contract forces you to define exactly 4 things — `name`, `max_output_tokens`, `needs_chunking_instruction`, and `call()`. If any of these is missing, Python will throw an error on its own (since `call` is an `@abstractmethod`).
 
-## Step 3: `factory.py` mein 1 line add karo
+## Step 3: Add 1 line in `factory.py`
 
 ```python
 # bhavai/llm/factory.py
 from bhavai.llm.providers.sarvam import SarvamProvider
 from bhavai.llm.providers.groq import GroqProvider
-from bhavai.llm.providers.openai import OpenAIProvider   # ← naya import
+from bhavai.llm.providers.openai import OpenAIProvider   # ← new import
 
 _PROVIDERS = {
     "sarvam": SarvamProvider,
     "groq":   GroqProvider,
-    "openai": OpenAIProvider,   # ← bas yeh ek line
+    "openai": OpenAIProvider,   # ← just this one line
 }
 ```
 
-Bas itna hi. `_call_api()`, `query_llm()`, `agent.py`, `SYSTEM_PROMPT_TEMPLATE` — inme se kuch bhi touch nahi karna. Yehi factory pattern ka poora point tha.
+That's it. Don't touch `_call_api()`, `query_llm()`, `agent.py`, or `SYSTEM_PROMPT_TEMPLATE` — none of that needs to change. That was the whole point of the factory pattern.
 
-## Step 4: `config.json` mein switch karo
+## Step 4: Switch it in `config.json`
 
 ```json
 { "llm": { "provider": "openai", "temperature": 0.2 } }
 ```
 
-Save karo, agla LLM call automatically OpenAI se jayega — koi restart bhi nahi chahiye, kyunki `get_provider()` har call pe `config.json` fresh padhta hai.
+Save it, and the next LLM call will automatically go to OpenAI — no restart needed either, since `get_provider()` reads `config.json` fresh on every call.
 
-## Checklist jo har naye provider ke liye follow karni hai
+## Checklist to follow for every new provider
 
-| Question | Kya set karna hai |
+| Question | What to set |
 |---|---|
-| Output token limit kitni hai? | `max_output_tokens` |
-| Kya iska hard truncation limit chhota hai (jaise Sarvam ka 4096)? | `needs_chunking_instruction = True` |
-| Ya bada limit hai (Groq/OpenAI jaisa)? | `needs_chunking_instruction = False` |
-| Provider ka truncation-signal ka naam kya hai? (`"max_tokens"`, `"length"`, kuch aur) | `call()` ke andar normalize karke `"max_tokens"` return karo — Groq mein humne `"length" → "max_tokens"` kiya tha, isi pattern follow karo |
-| Multiple keys/rotation chahiye? | `__init__()` mein `itertools.cycle` setup karo (Groq jaisa) |
+| What's the output token limit? | `max_output_tokens` |
+| Does it have a small hard truncation limit (like Sarvam's 4096)? | `needs_chunking_instruction = True` |
+| Or does it have a large limit (like Groq/OpenAI)? | `needs_chunking_instruction = False` |
+| What's the provider's truncation-signal name? (`"max_tokens"`, `"length"`, something else) | Normalize it inside `call()` and return `"max_tokens"` — we did `"length" → "max_tokens"` for Groq, follow the same pattern |
+| Need multiple keys/rotation? | Set up `itertools.cycle` in `__init__()` (like Groq) |
 
-Agla step ho to bata dena — chahe koi specific provider (Anthropic, local Ollama, etc.) ho, same pattern follow karke guide kiya ja sakta hai.
-
-<!-- https://claude.ai/share/d42b3801-812b-4bf4-a235-f1ce4582fe7f -->
+Let me know the next step — whether it's a specific provider (Anthropic, local Ollama, etc.), I can guide you through it following the same pattern.

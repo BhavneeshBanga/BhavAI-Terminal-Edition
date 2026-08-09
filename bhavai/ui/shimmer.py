@@ -15,6 +15,7 @@ COLOR_PRESETS = {
     "red":    ((150, 30, 30), (255, 140, 140)),
     "purple": ((90, 40, 150), (220, 170, 255)),
     "orange": ((180, 80, 0), (255, 190, 100)),
+    "grey":   ((100, 100, 100), (220, 220, 220)),
 }
 
 
@@ -66,7 +67,7 @@ class ShimmerStatus:
             do_slow_thing()
     """
 
-    def __init__(self, text, color="blue", delay=0.02, width=6.0, steps_per_char=3):
+    def __init__(self, text, color="grey", delay=0.02, width=6.0, steps_per_char=3):
         if color not in COLOR_PRESETS:
             raise ValueError(f"Unknown color '{color}'. Choose from: {list(COLOR_PRESETS)}")
         self.text = text

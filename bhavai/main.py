@@ -27,6 +27,12 @@ import time
 import webbrowser
 import random
 import shutil
+import subprocess
+import time
+import urllib.request
+from pathlib import Path
+
+import urllib.error
 
 from bhavai.ui.shimmer import ShimmerStatus
 
@@ -761,15 +767,7 @@ def wake(action):
             console.print(f"[bold red]Unexpected Error:[/bold red] {e}")
             logger.exception("REPL session encountered unexpected error: %s", e)
 
-import shutil
-import subprocess
-import sys
-import time
-import urllib.request
-import webbrowser
-from pathlib import Path
 
-import click
 
 BACKEND_APP = "bhavai.api:app"          # bhavai/api.py → app = FastAPI(...)
 BACKEND_HOST = "127.0.0.1"
@@ -778,7 +776,6 @@ BACKEND_PORT = 8000
 FRONTEND_DIR = Path(__file__).resolve().parent / "webui"   # bhavai/webui/
 FRONTEND_PORT = 3000
 
-import urllib.error
 def _wait_for_server(url: str, timeout_seconds: int = 45) -> bool:
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:

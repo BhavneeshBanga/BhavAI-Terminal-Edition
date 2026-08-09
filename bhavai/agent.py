@@ -35,10 +35,15 @@ from bhavai.config import CWD, logger
 from bhavai.context import get_folder_tree_string
 from bhavai.llm import query_llm_with_continuation, provider_needs_chunking
 from bhavai.memory import ConversationMemory
-from bhavai.tools import TOOL_DISPATCH, get_project_memory_string
 from bhavai.skill_getter import discover_skills_from_dot_bhavai
 
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+from bhavai.tools import TOOL_DISPATCH, get_project_memory_string, PARALLEL_SAFE_TOOLS
+
+def _parallel_tools_block() -> str:
+    return ", ".join(sorted(PARALLEL_SAFE_TOOLS))
 
 
 def _token_budget_block() -> str:
@@ -254,6 +259,36 @@ Your ENTIRE response must be a single JSON object with NO text before or after i
 }}
 
 Inside JSON strings:  newline → \\n   quote → \\"   backslash → \\\\
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PARALLEL TOOL CALLS (optional, use when it genuinely helps)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+If two or more tasks are completely INDEPENDENT — neither needs the other's
+result, and neither writes to a file the other reads/writes — you may run
+them at the same time instead of one after another.
+
+Only these tools may be run in parallel:
+{parallel_tools_block}
+
+To run several together, use "tool_calls" (a list) INSTEAD OF
+"tool_name"/"tool_args":
+{{
+  "thought": "Installing a package and searching docs are independent, running both together",
+  "tool_calls": [
+    {{"tool_name": "run_command", "tool_args": {{"command": "pip install requests"}}}},
+    {{"tool_name": "duckduckgo_search", "tool_args": {{"query": "requests library docs"}}}}
+  ]
+}}
+
+Rules:
+- Every tool in "tool_calls" MUST be from the list above. If even one tool
+  isn't on that list, or the tasks depend on each other, use a single
+  "tool_name"/"tool_args" call instead.
+- NEVER put "final_answer" inside "tool_calls" — call it alone, by itself.
+- If unsure whether two tasks are independent, be safe and run them one at a time.
+- When in doubt, a normal single tool_name/tool_args call is always correct.
+
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 DO NOT USE XML / ChatML TOOL-CALL SYNTAX
@@ -614,6 +649,7 @@ def _run_agent_loop(
             folder_tree=folder_tree,
             skills_block=discover_skills_from_dot_bhavai(CWD),
             token_budget_block=_token_budget_block(),
+            parallel_tools_block=_parallel_tools_block(),   #new
         )
 
         raw_response = ""
@@ -669,9 +705,10 @@ def _run_agent_loop(
             )
             continue
 
-        thought   = parsed.get("thought", "")
-        tool_name = parsed.get("tool_name", "")
-        tool_args = parsed.get("tool_args", {})
+        thought    = parsed.get("thought", "")
+        tool_name  = parsed.get("tool_name", "")
+        tool_args  = parsed.get("tool_args", {})
+        tool_calls_raw = parsed.get("tool_calls")
 
         if thought:
             console.print(Panel(
@@ -681,94 +718,188 @@ def _run_agent_loop(
                 border_style="dim",
             ))
 
-        if not tool_name:
-            memory.add_message("assistant", raw_response)
-            memory.add_message("user",
-                "Error: 'tool_name' is missing from your JSON. "
-                "Please include it in your next response.")
-            continue
-
+        # ── final_answer always wins, single-call only ─────────────────────
         if tool_name == "final_answer":
             answer = tool_args.get("answer", "Task complete.")
             console.print("\n[bold green]✅ BhavAI Final Answer:[/bold green]")
             console.print(answer)
             console.print()
             memory.add_message("assistant", raw_response)
-
-            # Mark plan as completed if we have planner state
             if planner_state:
                 try:
                     from bhavai.planner import set_plan_status
                     set_plan_status(planner_state, "completed")
                 except Exception:
                     pass
-
             return answer
 
-        if tool_name in TOOL_DISPATCH:
-            tool_func    = TOOL_DISPATCH[tool_name]
-            # print()
-            # print(tool_args)
-            # print()
-            args_display = _fmt_args(tool_args)
+        # ── Normalize this step into a list of calls to execute ────────────
+        calls_to_run = None
 
-            # print()
-            # print(args_display)
-            # print()
-
-            # ── Approval logic ──────────────────────────────────────────
-            is_mutating = tool_name in MUTATING_TOOLS
-            needs_approval = require_approval and is_mutating
-
-            if needs_approval:
-                _notify_safe(
-                    "BhavAI — Permission Required",
-                    f"Tool: {tool_name}({args_display[:80]})"
+        if tool_calls_raw is not None:
+            if not isinstance(tool_calls_raw, list) or not tool_calls_raw:
+                memory.add_message("assistant", raw_response)
+                memory.add_message(
+                    "user",
+                    "Error: 'tool_calls' must be a non-empty list of "
+                    '{"tool_name": ..., "tool_args": ...} objects.'
                 )
-                console.print(
-                    f"\n[bold yellow]⚡ Run [green]{tool_name}[/green]"
-                    f"({tool_args['command']})? (y/n/exit): [/bold yellow]",
-                    end=""
+                continue
+
+            parsed_calls = []
+            malformed = False
+            for entry in tool_calls_raw:
+                if not isinstance(entry, dict) or not entry.get("tool_name"):
+                    malformed = True
+                    break
+                parsed_calls.append({
+                    "tool_name": entry.get("tool_name"),
+                    "tool_args": entry.get("tool_args", {}) or {},
+                })
+
+            if malformed:
+                memory.add_message("assistant", raw_response)
+                memory.add_message(
+                    "user",
+                    "Error: each entry in 'tool_calls' needs a 'tool_name' "
+                    "(and optional 'tool_args')."
                 )
-                user_answer = console.input("").strip().lower()
+                continue
 
-                if user_answer == "n":
-                    result = f"User declined to run '{tool_name}'. Skipped."
-                    console.print(f"[yellow]✗ Skipped {tool_name} (user declined)[/yellow]")
-                    memory.add_message("assistant", raw_response)
-                    memory.add_message("system", f"Observation from {tool_name}:\n{result}")
-                    calls += 1
-                    continue
+            if any(c["tool_name"] == "final_answer" for c in parsed_calls):
+                memory.add_message("assistant", raw_response)
+                memory.add_message(
+                    "user",
+                    "Error: 'final_answer' cannot be inside 'tool_calls'. "
+                    "Call it alone, by itself, once everything else is done."
+                )
+                continue
 
-                if user_answer == "exit":
-                    return "Agent loop exited by user."
+            not_parallel_safe = [
+                c["tool_name"] for c in parsed_calls
+                if c["tool_name"] not in PARALLEL_SAFE_TOOLS
+            ]
+            if not_parallel_safe:
+                memory.add_message("assistant", raw_response)
+                memory.add_message(
+                    "user",
+                    f"Error: these tools cannot run in parallel: {not_parallel_safe}. "
+                    f"Only these are parallel-safe: {sorted(PARALLEL_SAFE_TOOLS)}. "
+                    "Run the others one at a time with a single "
+                    "tool_name/tool_args call."
+                )
+                continue
 
-            # ── Execute tool ────────────────────────────────────────────
-            with console.status(
-                f"[bold blue][TOOL][/bold blue] "
-                f"[bold green]{tool_name}[/bold green]({args_display})…",
-                spinner="dots"
-            ):
-                try:
-                    result = tool_func(**tool_args) if isinstance(tool_args, dict) else tool_func()
-                except Exception as exc:
-                    result = f"Tool error — {tool_name}: {exc}"
-                    logger.error("Tool crash %s: %s", tool_name, exc)
+            unknown = [c["tool_name"] for c in parsed_calls if c["tool_name"] not in TOOL_DISPATCH]
+            if unknown:
+                memory.add_message("assistant", raw_response)
+                memory.add_message(
+                    "user",
+                    f"Error: unknown tool(s) {unknown}. "
+                    f"Available: {list(TOOL_DISPATCH.keys())}"
+                )
+                continue
+
+            calls_to_run = parsed_calls
+
+        elif tool_name:
+            if tool_name not in TOOL_DISPATCH:
+                memory.add_message("assistant", raw_response)
+                memory.add_message(
+                    "user",
+                    f"Error: Unknown tool '{tool_name}'. "
+                    f"Available: {list(TOOL_DISPATCH.keys())}"
+                )
+                continue
+            calls_to_run = [{"tool_name": tool_name, "tool_args": tool_args}]
+
         else:
-            result = (f"Error: Unknown tool '{tool_name}'. "
-                      f"Available: {list(TOOL_DISPATCH.keys())}")
-            logger.warning("Unknown tool: %s", tool_name)
+            memory.add_message("assistant", raw_response)
+            memory.add_message(
+                "user",
+                "Error: 'tool_name' (or 'tool_calls') is missing from your JSON. "
+                "Please include it in your next response."
+            )
+            continue
 
-        text_to_be_displayed_inside_console = result[:100]
-        console.print(Panel(
-            str(text_to_be_displayed_inside_console),
-            title=f"[bold]🔍 Observation — {tool_name}[/bold] ",
-            title_align="left",
-            border_style="blue",
-        ))
+        # ── Approval logic — batched if multiple mutating calls ────────────
+        mutating_calls = [c for c in calls_to_run if c["tool_name"] in MUTATING_TOOLS]
+        needs_approval = require_approval and mutating_calls
+        results = {}
+        remaining = calls_to_run
+
+        if needs_approval:
+            listing = "\n".join(
+                f"  - {c['tool_name']}({_fmt_args(c['tool_args'])})"
+                for c in mutating_calls
+            )
+            _notify_safe(
+                "BhavAI — Permission Required",
+                f"{len(mutating_calls)} command(s) waiting for approval"
+            )
+            console.print(
+                f"\n[bold yellow]⚡ Run the following "
+                f"{len(mutating_calls)} command(s)?[/bold yellow]\n{listing}"
+            )
+            console.print("[bold yellow](y/n/exit): [/bold yellow]", end="")
+            user_answer = console.input("").strip().lower()
+
+            if user_answer == "exit":
+                return "Agent loop exited by user."
+
+            if user_answer == "n":
+                declined_ids = {id(c) for c in mutating_calls}
+                for c in calls_to_run:
+                    if id(c) in declined_ids:
+                        results[id(c)] = f"User declined to run '{c['tool_name']}'. Skipped."
+                remaining = [c for c in calls_to_run if id(c) not in declined_ids]
+                console.print(f"[yellow]✗ Skipped {len(declined_ids)} mutating call(s) (user declined)[/yellow]")
+
+        # ── Execute — parallel if >1 remaining call, else plain call ───────
+        def _execute_one(call):
+            fn = TOOL_DISPATCH[call["tool_name"]]
+            try:
+                return fn(**call["tool_args"]) if isinstance(call["tool_args"], dict) else fn()
+            except Exception as exc:
+                logger.error("Tool crash %s: %s", call["tool_name"], exc)
+                return f"Tool error — {call['tool_name']}: {exc}"
+
+        if remaining:
+            label = ", ".join(c["tool_name"] for c in remaining)
+            status_msg = (
+                f"[bold blue][TOOL][/bold blue] running {len(remaining)} "
+                f"tool(s) in parallel: [bold green]{label}[/bold green]…"
+                if len(remaining) > 1 else
+                f"[bold blue][TOOL][/bold blue] [bold green]{remaining[0]['tool_name']}[/bold green]"
+                f"({_fmt_args(remaining[0]['tool_args'])})…"
+            )
+            with console.status(status_msg, spinner="dots"):
+                if len(remaining) == 1:
+                    results[id(remaining[0])] = _execute_one(remaining[0])
+                else:
+                    with ThreadPoolExecutor(max_workers=min(8, len(remaining))) as ex:
+                        future_map = {ex.submit(_execute_one, c): c for c in remaining}
+                        for fut in as_completed(future_map):
+                            c = future_map[fut]
+                            results[id(c)] = fut.result()
+
+        # ── Build combined observation, print a panel per tool ──────────────
+        obs_parts = []
+        for c in calls_to_run:
+            r = results.get(id(c), "Error: no result produced.")
+            args_display = _fmt_args(c["tool_args"])
+            console.print(Panel(
+                str(r)[:100],
+                title=f"[bold]🔍 Observation — {c['tool_name']}[/bold] ",
+                title_align="left",
+                border_style="blue",
+            ))
+            obs_parts.append(f"### {c['tool_name']}({args_display})\n{r}")
+
+        result_combined = "\n\n".join(obs_parts)
 
         memory.add_message("assistant", raw_response)
-        memory.add_message("system", f"Observation from {tool_name}:\n{result}")
+        memory.add_message("system", f"Observations:\n{result_combined}")
 
         calls = calls + 1
 

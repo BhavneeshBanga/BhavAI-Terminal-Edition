@@ -518,6 +518,42 @@ TOOL_DISPATCH = {
 # ensure_git_initialized / _git_stage FROM this module).
 # ─────────────────────────────────────────────────────────────────────────────
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Parallel-safe tools — these can run CONCURRENTLY when the LLM judges two or
+# more tasks are independent (e.g. "pip install X" + "search the web for Y").
+#
+# Rule for what belongs here: read-only, OR mutates something that isn't a
+# file the other parallel call could also be touching (run_command covers
+# pip install / npm install — it mutates the environment, not project files,
+# so it's safe next to a read-only search/fetch call).
+#
+# Anything that writes/edits a PROJECT FILE (write_file, append_chunk,
+# replace_lines, insert_lines, delete_lines, patch_file, insert_function,
+# replace_function, rename_path, create_directory, git_commit, revert_file)
+# is deliberately EXCLUDED — two of those running at once is a real race
+# condition risk (same file, interleaved writes), so they always stay serial.
+# ─────────────────────────────────────────────────────────────────────────────
+
+PARALLEL_SAFE_TOOLS = {
+    "run_command",
+    "read_file",
+    "read_file_chunk",
+    "list_folder",
+    "search_code",
+    "find_files",
+    "get_outline",
+    "list_todos",
+    "get_diff",
+    "check_dependencies",
+    "find_symbol",
+    "find_references",
+    "get_function_source",
+    "fetch_url",
+    "duckduckgo_search",
+    "read_image",
+}
+
 from bhavai.tools_extended import EXTENDED_TOOL_DISPATCH  # noqa: E402
 
 TOOL_DISPATCH.update(EXTENDED_TOOL_DISPATCH)

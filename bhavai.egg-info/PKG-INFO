@@ -30,6 +30,14 @@ git stash list
 git stash apply
 ```
 
+Windows ( Powershell )
+```
+irm https://raw.githubusercontent.com/BhavneeshBanga/bhavai-terminal-edition/main/install.ps1 | iex
+```
+Mac/Linux (bash):
+```
+curl -fsSL https://raw.githubusercontent.com/BhavneeshBanga/bhavai-terminal-edition/main/install.sh | bash
+```
 
 ---
 

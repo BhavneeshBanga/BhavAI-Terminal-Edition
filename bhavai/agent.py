@@ -600,6 +600,7 @@ def _run_agent_loop(
     step_count            = 0
     consecutive_json_errs = 0
     calls = 0
+    recent_tool_calls     = [] # naya — [(tool_name, tool_args_str), ...]
 
     while step_count < max_steps:
         step_count += 1
@@ -707,15 +708,30 @@ def _run_agent_loop(
 
         if tool_name in TOOL_DISPATCH:
             tool_func    = TOOL_DISPATCH[tool_name]
-            # print()
-            # print(tool_args)
-            # print()
             args_display = _fmt_args(tool_args)
 
-            # print()
-            # print(args_display)
-            # print()
+            # ── Repeat-call guard ──────────────────────────────────────
+            call_signature = (tool_name, json.dumps(tool_args, sort_keys=True, default=str))
+            recent_tool_calls.append(call_signature)
+            recent_tool_calls = recent_tool_calls[-4:]   # sirf last 4 rakho
 
+            if recent_tool_calls.count(call_signature) >= 3:
+                result = (
+                    f"NOTICE: You already called {tool_name} with these exact "
+                    f"arguments {recent_tool_calls.count(call_signature)} times in a row. "
+                    "Do NOT repeat this call. Check the previous Observation above for "
+                    "the result you already have, and move to the NEXT step of your plan. "
+                    "If you believe this call is genuinely necessary again, explain why "
+                    "in your 'thought' field first."
+                )
+                memory.add_message("assistant", raw_response)
+                memory.add_message("user", f"Observation from {tool_name}:\n{result}")
+                calls += 1
+                console.print(f"[bold red]⚠  Repeat-call detected: {tool_name}({args_display}) — blocked, warning sent to model.[/bold red]")
+                continue
+
+
+            
             # ── Approval logic ──────────────────────────────────────────
             is_mutating = tool_name in MUTATING_TOOLS
             needs_approval = require_approval and is_mutating
@@ -736,7 +752,8 @@ def _run_agent_loop(
                     result = f"User declined to run '{tool_name}'. Skipped."
                     console.print(f"[yellow]✗ Skipped {tool_name} (user declined)[/yellow]")
                     memory.add_message("assistant", raw_response)
-                    memory.add_message("system", f"Observation from {tool_name}:\n{result}")
+                    # memory.add_message("system", f"Observation from {tool_name}:\n{result}")
+                    memory.add_message("user", f"Observation from {tool_name}:\n{result}")
                     calls += 1
                     continue
 
@@ -768,7 +785,8 @@ def _run_agent_loop(
         ))
 
         memory.add_message("assistant", raw_response)
-        memory.add_message("system", f"Observation from {tool_name}:\n{result}")
+        # memory.add_message("system", f"Observation from {tool_name}:\n{result}")
+        memory.add_message("user", f"Observation from {tool_name}:\n{result}")
 
         calls = calls + 1
 

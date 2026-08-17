@@ -5,6 +5,7 @@ bhavai/__init__.py
 bhavai/agent.py
 bhavai/api.py
 bhavai/config.py
+bhavai/config_commands.py
 bhavai/config_schema.py
 bhavai/context.py
 bhavai/main.py
@@ -25,6 +26,7 @@ bhavai.egg-info/entry_points.txt
 bhavai.egg-info/requires.txt
 bhavai.egg-info/top_level.txt
 bhavai/banner/bhavai_agent.py
+bhavai/core/config_store.py
 bhavai/core/messages.py
 bhavai/llm/__init__.py
 bhavai/llm/base.py

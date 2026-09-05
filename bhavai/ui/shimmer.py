@@ -16,6 +16,7 @@ COLOR_PRESETS = {
     "purple": ((90, 40, 150), (220, 170, 255)),
     "orange": ((180, 80, 0), (255, 190, 100)),
     "grey":   ((100, 100, 100), (220, 220, 220)),
+    "white":  ((255, 255, 255), (245, 245, 245)),
 }
 
 
@@ -37,7 +38,7 @@ def _shimmer_frame(text, base_color, peak_color, center, width):
     return t
 
 
-def shimmer_text(text, color="blue", delay=0.02, loops=2, width=6.0, steps_per_char=3):
+def shimmer_text(text, color="white", delay=0.02, loops=2, width=6.0, steps_per_char=3):
     """One-shot blocking shimmer (unchanged behavior) — use for fixed-duration flashes."""
     if color not in COLOR_PRESETS:
         raise ValueError(f"Unknown color '{color}'. Choose from: {list(COLOR_PRESETS)}")

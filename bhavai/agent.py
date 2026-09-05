@@ -618,7 +618,8 @@ def _run_agent_loop(
         )
 
         raw_response = ""
-        with ShimmerStatus("Thinking…", color="blue"):
+        # with ShimmerStatus("Thinking…", color="blue"):
+        with ShimmerStatus("Thinking…", color="grey"):
             try:
                 messages     = memory.get_messages(system_prompt)
                 raw_response = query_llm_with_continuation(messages, calls=calls % 4)
@@ -762,7 +763,7 @@ def _run_agent_loop(
 
             # ── Execute tool ────────────────────────────────────────────
             with console.status(
-                f"[bold blue][TOOL][/bold blue] "
+                f"[bold white][TOOL][/bold white] "
                 f"[bold green]{tool_name}[/bold green]({args_display})…",
                 spinner="dots"
             ):
@@ -781,7 +782,8 @@ def _run_agent_loop(
             str(text_to_be_displayed_inside_console),
             title=f"[bold]🔍 Observation — {tool_name}[/bold] ",
             title_align="left",
-            border_style="blue",
+            # border_style="blue",
+            border_style="white",
         ))
 
         memory.add_message("assistant", raw_response)

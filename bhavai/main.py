@@ -157,8 +157,8 @@ def prompt_trust_folder(console: Console, cwd: Path) -> bool:
         "Trusting a folder allows BhavAI to load its local configurations,\n"
         "including custom commands, skills, and settings. These configurations\n"
         "could execute code on your behalf or change BhavAI's behavior.",
-        title="[bold green]BhavAI - Trust Check[/bold green]",
-        border_style="green",
+        title="[bold white]BhavAI - Trust Check[/bold white]",
+        border_style="blue",
         padding=(1, 2),
     ))
 

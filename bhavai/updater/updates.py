@@ -94,6 +94,6 @@ Run:
 bhav update
 """,
             title="BhavAI Update",
-            border_style="green"
+            border_style="white"
         )
     )

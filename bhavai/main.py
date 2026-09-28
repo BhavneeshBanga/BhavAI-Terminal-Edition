@@ -405,7 +405,7 @@ def wake(action):
         pass
 
     banner_text = (
-        f"🚀 [bold green]BhavAI Activated Successfully![/bold green]\n\n"
+        f"🚀 [bold white]BhavAI Activated Successfully![/bold white]\n\n"
         f"📍  [bold]Location:[/bold] {cfg['CWD']}\n"
         f"⚙️  [bold]Model:[/bold] {cfg['MODEL']}\n"
         f"🛡️  [bold]Initial Mode:[/bold] [bold cyan]Plan Mode[/bold cyan] (Default)\n"
@@ -421,7 +421,7 @@ def wake(action):
     inner_layout.add_row(BHAVAI_WOLF, banner_text)
 
     console.print(
-        Panel(inner_layout, title="BhavAI Personal Terminal Agent", border_style="green")
+        Panel(inner_layout, title="BhavAI Personal Terminal Agent", border_style="white")
     )
     # --- end new block, replaces the old: console.print(Panel(banner_text, ...)) ---
 

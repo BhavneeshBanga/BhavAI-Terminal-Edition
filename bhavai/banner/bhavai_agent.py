@@ -13,17 +13,22 @@ R   = "\033[0m"
 YEL = "\033[1;93m"
 
 main = {
-    "1. Cyan -> Violet (original)": [
-        "bold #00F5FF", "bold #00F5FF", "#7B2FF7", "#7B2FF7", "#B026FF", "#B026FF",
-    ],
-    "2. Neon Green -> Cyan": [
-        "bold #39FF14", "bold #39FF14", "#00FF9C", "#00FF9C", "#00E5FF", "#00E5FF",
-    ],
-    "3. Gold -> Orange (fire)": [
-        "bold #FFD700", "bold #FFD700", "#FFA500", "#FFA500", "#FF6B35", "#FF6B35",
-    ],
-    "4. Ice Blue -> White": [
-        "bold #38BDF8", "bold #38BDF8", "#7DD3FC", "#7DD3FC", "#E0F2FE", "#E0F2FE",
+    # "1. Cyan -> Violet (original)": [
+    #     "bold #00F5FF", "bold #00F5FF", "#7B2FF7", "#7B2FF7", "#B026FF", "#B026FF",
+    # ],
+    # "2. Neon Green -> Cyan": [
+    #     "bold #39FF14", "bold #39FF14", "#00FF9C", "#00FF9C", "#00E5FF", "#00E5FF",
+    # ],
+    # "3. Gold -> Orange (fire)": [
+    #     "bold #FFD700", "bold #FFD700", "#FFA500", "#FFA500", "#FF6B35", "#FF6B35",
+    # ],
+    # "4. Ice Blue -> White": [
+    #     "bold #38BDF8", "bold #38BDF8", "#7DD3FC", "#7DD3FC", "#E0F2FE", "#E0F2FE",
+    # ],
+    "5. Pure White -> Grey (professional)": [
+        "bold #FFFFFF", "bold #FFFFFF",
+        "#F2F2F2", "#F2F2F2",
+        "#BDBDBD", "#BDBDBD",
     ],
     
 }
@@ -63,3 +68,10 @@ def print_bhavai_agent():
     print()
     print_variant(console, colors)
     print()
+
+
+
+
+
+if __name__ == "__main__":
+    print_bhavai_agent()

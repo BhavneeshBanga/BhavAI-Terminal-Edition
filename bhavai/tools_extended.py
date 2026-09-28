@@ -1306,7 +1306,7 @@ def git_commit(message: str) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 
 import base64
-import imghdr
+# import imghdr
 import struct
 
 

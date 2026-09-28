@@ -59,6 +59,8 @@ from prompt_toolkit.layout.containers import Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from bhavai.config_commands import config_group
 
+from bhavai.helper.create_first_file_Note_from_bhavai_ import create_first_file_Note_from_bhavai
+
 TRUST_FILE = Path.home() / ".bhavai" / "trusted_folders.json"
 
 def _load_trusted_folders() -> list:
@@ -314,6 +316,8 @@ def wake(action):
     BhavAI_dot_folder = Path.home() / ".bhavai"
     if not BhavAI_dot_folder.exists():
         BhavAI_dot_folder.mkdir()
+        create_first_file_Note_from_bhavai()
+
 
     if not is_folder_trusted(CWD):
         trusted_now = prompt_trust_folder(console, CWD)
@@ -405,12 +409,11 @@ def wake(action):
         pass
 
     banner_text = (
-        f"🚀 [bold white]BhavAI Activated Successfully![/bold white]\n\n"
+        f"\n🚀 [bold white]BhavAI Activated Successfully![/bold white]\n"
         f"📍  [bold]Location:[/bold] {cfg['CWD']}\n"
         f"⚙️  [bold]Model:[/bold] {cfg['MODEL']}\n"
         f"🛡️  [bold]Initial Mode:[/bold] [bold cyan]Plan Mode[/bold cyan] (Default)\n"
         f"📝 [bold]Logs Path:[/bold] {cfg['LOG_FILE']}\n"
-        # f"{do_you_know}\n\n"
         f"[dim]Type your requests below. Use 'mode agent' or 'mode plan' to toggle modes, 'exit' or 'quit' to close.[/dim]"
     )
 

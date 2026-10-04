@@ -25,6 +25,7 @@ This file implements a 5-layer defence (was 4 in v1):
 
 
 from bhavai.ui.shimmer import ShimmerStatus
+from bhavai.ui.live_thinking import LiveThinkingDisplay
 
 import json
 import re
@@ -33,7 +34,7 @@ from rich.panel import Panel
 
 from bhavai.config import CWD, logger
 from bhavai.context import get_folder_tree_string
-from bhavai.llm import query_llm_with_continuation, provider_needs_chunking
+from bhavai.llm import query_llm_with_continuation, query_llm_with_continuation_stream, provider_needs_chunking
 from bhavai.memory import ConversationMemory
 from bhavai.tools import TOOL_DISPATCH, get_project_memory_string
 from bhavai.skill_getter import discover_skills_from_dot_bhavai
@@ -81,17 +82,33 @@ skills you have:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 AVAILABLE TOOLS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📁 File Operations:
 - list_folder   → {{"path": "string (default '.')"}}
 - read_file     → {{"path": "string"}}
+- read_file_chunk → {{"path": "string", "start_line": "int", "end_line": "int"}}
+    Reads only a specific line range (1-indexed, inclusive) from a file,
+    with line numbers. Use this instead of read_file for files longer than
+    ~100 lines when you only need a portion of it.
 - write_file    → {{"path": "string", "content": "string"}}
     Use ONLY for short files (< 60 lines). For larger files use append_chunk.
+- update_file   → {{"path": "string", "content": "string"}}
+    ⚠ DEPRECATED — use patch_file or replace_lines instead.
+    Legacy alias that overwrites the entire file, same as write_file.
 - append_chunk  → {{"path": "string", "chunk": "string", "done": true|false}}
     Appends one chunk to a file. Set done=true on the LAST chunk only.
     Use this for ANY file > 60 lines by splitting into chunks of ≤50 lines each.
     Use this feature if you want to write after text , this append_chunk tool can add code at the end of file
+- create_directory → {{"path": "string"}}
+    Creates a directory (and parent dirs) inside CWD. Idempotent — silently
+    succeeds if it already exists. Use to scaffold project structure before
+    writing files (e.g. src/, tests/, docs/).
+- rename_path   → {{"source": "string", "destination": "string"}}
+    Moves/renames a file or folder. Refuses to overwrite an existing
+    destination. This is the ONLY way to reorganize files — there is no
+    delete tool, by design.
 
-- run_command   → {{"command": "string"}}
-    Safe read-only shell commands only (git status, ls, cat …).
+🔍 Code Navigation:
 - search_code   → {{"query": "string", "path": "string (default '.')", "regex": true|false, "case_sensitive": true|false}}
     Grep-like search across the project. Use this FIRST when asked "where is X
     used/defined" instead of reading files one by one.
@@ -100,44 +117,6 @@ AVAILABLE TOOLS
 - get_outline   → {{"path": "string"}}
     Returns function/class signatures + line numbers for a file WITHOUT its
     full content. Use this before read_file when you just need to navigate.
-- list_todos    → {{"path": "string (default '.')"}}
-    Scans for TODO / FIXME / HACK / XXX / BUG comments across the project.
-- get_diff      → {{"path": "string (optional — omit for whole workspace)"}}
-    Shows git diff HEAD — what BhavAI has actually changed so far.
-- check_dependencies → {{"path": "string (default '.')"}}
-    Parses requirements.txt / pyproject.toml / package.json and reports which
-    declared dependencies are missing from the environment, with the install
-    command to fix it. Run this before executing code that imports packages.
-- rename_path   → {{"source": "string", "destination": "string"}}
-    Moves/renames a file or folder. Refuses to overwrite an existing
-    destination. This is the ONLY way to reorganize files — there is no
-    delete tool, by design.
-- fetch_url     → {{"url": "string", "max_chars": "int (default 8000)"}}
-    Fetches real documentation/API reference/Stack Overflow pages so you can
-    answer from ground truth instead of guessing library APIs from memory.
-- duckduckgo_search → {{"query": "string", "max_results": "int (default 5)"}}
-    Searches DuckDuckGo on the web for live query results (prices, news, docs).
-    Pair with fetch_url to read full pages from search result links.
-- get_function_source → {{"path": "string", "function_name": "string"}}
-    Returns ONE function's exact source + line numbers, found via AST. Use
-    this instead of read_file when you only need to inspect one function.
-- insert_function → {{"path": "string", "new_source": "string"}}
-    Appends a brand-new top-level function to the end of a Python file.
-    new_source must be a complete, syntactically valid function definition.
-    Use this only when the function does NOT already exist.
-- replace_function → {{"path": "string", "function_name": "string", "new_source": "string"}}
-    Replaces an existing top-level function's full source, located precisely
-    via AST line numbers. new_source must be a complete, syntactically valid
-    replacement function. Use get_function_source first if you need to see
-    the current body before rewriting it.
-- final_answer  → {{"answer": "string"}}
-    Call this when the entire task is complete.
-
-
-- read_file_chunk → {{"path": "string", "start_line": "int", "end_line": "int"}}
-    Reads only a specific line range (1-indexed, inclusive) from a file,
-    with line numbers. Use this instead of read_file for files longer than
-    ~100 lines when you only need a portion of it.
 - find_symbol   → {{"name": "string", "path": "string (default '.')"}}
     Project-wide "go to definition" — finds every class/function/variable
     named `name` across ALL .py files, not just one file. Use this FIRST
@@ -146,6 +125,11 @@ AVAILABLE TOOLS
     Finds every place `name` is USED (not defined) across the project.
     More precise than search_code for symbols — pairs with find_symbol
     ("defined where" vs "used where").
+- get_function_source → {{"path": "string", "function_name": "string"}}
+    Returns ONE function's exact source + line numbers, found via AST. Use
+    this instead of read_file when you only need to inspect one function.
+
+✏️ Code Editing:
 - replace_lines → {{"path": "string", "start_line": "int", "end_line": "int", "new_content": "string"}}
     Replaces an exact line range in ANY file (not limited to Python
     functions). Use get_outline / find_symbol / read_file_chunk first to
@@ -158,6 +142,25 @@ AVAILABLE TOOLS
     automatically BEFORE the deletion happens, so it is always recoverable
     with revert_file. Use only when you are CERTAIN those lines should go —
     prefer replace_lines if you're actually replacing content, not removing it.
+- patch_file    → {{"path": "string", "search_text": "string", "replace_text": "string", "occurrence": "int (default 1, 0=all)"}}
+    Search-and-replace: finds `search_text` in the file and replaces it with
+    `replace_text`. No line numbers needed — just specify the exact text to
+    find (must match EXACTLY including whitespace). Use occurrence=0 to
+    replace all matches. This is often FASTER than replace_lines because you
+    don't need to look up line numbers first.
+- insert_function → {{"path": "string", "new_source": "string"}}
+    Appends a brand-new top-level function to the end of a Python file.
+    new_source must be a complete, syntactically valid function definition.
+    Use this only when the function does NOT already exist.
+- replace_function → {{"path": "string", "function_name": "string", "new_source": "string"}}
+    Replaces an existing top-level function's full source, located precisely
+    via AST line numbers. new_source must be a complete, syntactically valid
+    replacement function. Use get_function_source first if you need to see
+    the current body before rewriting it.
+
+🖥️ Shell & Testing:
+- run_command   → {{"command": "string"}}
+    Safe read-only shell commands only (git status, ls, cat …).
 - run_tests     → {{"path": "string (default '.')", "command": "string (optional)"}}
     Runs the project's test suite (auto-detects pytest / npm test if
     `command` is omitted). ALWAYS run this after making code changes,
@@ -165,32 +168,44 @@ AVAILABLE TOOLS
 - lint_file     → {{"path": "string"}}
     Runs a linter (ruff/flake8 for .py, eslint for .js/.ts) on one file, if
     installed. Use to catch syntax/style issues before calling final_answer.
+- check_dependencies → {{"path": "string (default '.')"}}
+    Parses requirements.txt / pyproject.toml / package.json and reports which
+    declared dependencies are missing from the environment, with the install
+    command to fix it. Run this before executing code that imports packages.
+
+🔄 Git & Recovery:
+- get_diff      → {{"path": "string (optional — omit for whole workspace)"}}
+    Shows git diff HEAD — what BhavAI has actually changed so far.
 - revert_file   → {{"path": "string"}}
     Restores a file to its last git-committed state — the undo button for
     write_file / append_chunk / replace_lines / insert_lines / delete_lines.
     Use this if a change you just made turns out to be wrong.
-- patch_file    → {{"path": "string", "search_text": "string", "replace_text": "string", "occurrence": "int (default 1, 0=all)"}}
-    Search-and-replace: finds `search_text` in the file and replaces it with
-    `replace_text`. No line numbers needed — just specify the exact text to
-    find (must match EXACTLY including whitespace). Use occurrence=0 to
-    replace all matches. This is often FASTER than replace_lines because you
-    don't need to look up line numbers first.
-- create_directory → {{"path": "string"}}
-    Creates a directory (and parent dirs) inside CWD. Idempotent — silently
-    succeeds if it already exists. Use to scaffold project structure before
-    writing files (e.g. src/, tests/, docs/).
 - git_commit    → {{"message": "string"}}
     Stages all changes and creates a git commit with a descriptive message.
     Use after completing a logical unit of work for clean commit history.
+
+🌐 Web & Media:
+- fetch_url     → {{"url": "string", "max_chars": "int (default 8000)"}}
+    Fetches real documentation/API reference/Stack Overflow pages so you can
+    answer from ground truth instead of guessing library APIs from memory.
+- duckduckgo_search → {{"query": "string", "max_results": "int (default 5)"}}
+    Searches DuckDuckGo on the web for live query results (prices, news, docs).
+    Pair with fetch_url to read full pages from search result links.
 - read_image    → {{"path": "string", "include_base64": "bool (default false)"}}
     Returns image metadata (dimensions, format, file size) for image files.
     Supports PNG, JPEG, GIF, BMP, WebP, SVG, ICO without requiring Pillow.
     Set include_base64=true to get base64 data URI (for vision models).
 
+📋 Project & Task Completion:
+- list_todos    → {{"path": "string (default '.')"}}
+    Scans for TODO / FIXME / HACK / XXX / BUG comments across the project.
+- final_answer  → {{"answer": "string"}}
+    Call this when the entire task is complete.
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 STRICT RULES  (never break these)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. NEVER delete files or directories.
+1. NEVER delete entire files or directories (delete_lines only removes lines WITHIN a file).
 2. Stay inside {cwd} — all paths are sandboxed.
 3. Blocked commands: rm, rmdir, del, unlink, shutil.rmtree, os.remove, format, mkfs, drop table.
 4. Work step-by-step; show reasoning in "thought".
@@ -222,28 +237,13 @@ STRICT RULES  (never break these)
 15. After completing a logical unit of work (feature, bugfix, refactor), use git_commit to
     create a named commit. Don't leave everything as unstaged changes.
 16. Use create_directory to scaffold folder structure BEFORE writing files into those folders.
-{token_budget_block}
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RESPONSE FORMAT  (raw JSON only — no markdown fences, no extra text)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 CRITICAL: You MUST respond with raw JSON ONLY.
 NEVER use <tool_call>, <arg_key>, <arg_value> or ANY XML-like tags.
 NEVER wrap your response in XML syntax of any kind.
-Your ENTIRE response must be a single JSON object with NO text before or after it:
-{{
-  "thought": "brief reasoning about what you are about to do",
-  "tool_name": "one of the tool names above",
-  "tool_args": {{
-    "arg_name": "arg_value"
-  }}
-}}
-
-Inside JSON strings:  newline → \\n   quote → \\"   backslash → \\\\
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-RESPONSE FORMAT  (raw JSON only — no markdown fences, no extra text)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-CRITICAL: You MUST respond with raw JSON ONLY.
 Your ENTIRE response must be a single JSON object with NO text before or after it:
 {{
   "thought": "brief reasoning about what you are about to do",
@@ -473,11 +473,17 @@ def _parse_tool_call_tags(text: str) -> dict | None:
                     pass  # keep as string
         tool_args[k] = v
 
-    # Try to extract thought from <think> tags or before <tool_call>
+    # Try to extract thought from <think> tags, text before <tool_call>, or generate summary
     thought = ""
     think_match = re.search(r'<think>(.*?)</think>', text, re.DOTALL)
     if think_match:
         thought = think_match.group(1).strip()
+    else:
+        pre_text = text[:tc_match.start()].strip()
+        if pre_text:
+            thought = pre_text
+        else:
+            thought = f"Executing `{tool_name}` with arguments: {_fmt_args(tool_args)}"
 
     logger.info("_parse_tool_call_tags: parsed XML tool_call → %s(%s)", tool_name, list(tool_args.keys()))
     return {
@@ -597,6 +603,16 @@ def _run_agent_loop(
     """
     memory.add_message("user", task_prompt)
 
+    folder_tree           = get_folder_tree_string(CWD)
+    project_context_block = _build_project_context_block(CWD)
+    system_prompt         = SYSTEM_PROMPT_TEMPLATE.format(
+        cwd=str(CWD),
+        project_context_block=project_context_block,
+        folder_tree=folder_tree,
+        skills_block=discover_skills_from_dot_bhavai(CWD),
+        token_budget_block=_token_budget_block(),
+    )
+
     step_count            = 0
     consecutive_json_errs = 0
     calls = 0
@@ -606,23 +622,15 @@ def _run_agent_loop(
         step_count += 1
         logger.info("ReAct step %d/%d", step_count, max_steps)
 
-        folder_tree   = get_folder_tree_string(CWD)
-        project_context_block = _build_project_context_block(CWD)
-
-        system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
-            cwd=str(CWD),
-            project_context_block=project_context_block,
-            folder_tree=folder_tree,
-            skills_block=discover_skills_from_dot_bhavai(CWD),
-            token_budget_block=_token_budget_block(),
-        )
-
         raw_response = ""
-        # with ShimmerStatus("Thinking…", color="blue"):
-        with ShimmerStatus("Thinking…", color="grey"):
+        with LiveThinkingDisplay("Thinking…", shimmer_color="grey") as live_disp:
             try:
                 messages     = memory.get_messages(system_prompt)
-                raw_response = query_llm_with_continuation(messages, calls=calls % 4)
+                raw_response = query_llm_with_continuation_stream(
+                    messages,
+                    calls=calls % 4,
+                    on_token=live_disp.on_token,
+                )
             except Exception as exc:
                 err = f"LLM Error: {exc}"
                 console.print(f"[bold red]{err}[/bold red]")
@@ -674,6 +682,12 @@ def _run_agent_loop(
         thought   = parsed.get("thought", "")
         tool_name = parsed.get("tool_name", "")
         tool_args = parsed.get("tool_args", {})
+
+        if not thought and tool_name:
+            if tool_name == "final_answer":
+                thought = f"Task completed: {tool_args.get('answer', '')[:100]}"
+            else:
+                thought = f"Executing `{tool_name}` ({_fmt_args(tool_args)})"
 
         if thought:
             console.print(Panel(

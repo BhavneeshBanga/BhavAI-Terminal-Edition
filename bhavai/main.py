@@ -131,7 +131,7 @@ def _inline_arrow_menu(options: list) -> int:
 
     from prompt_toolkit.styles import Style
     style = Style.from_dict({
-        "selected": "#33cc33 bold",
+        "selected": "#aaaaaa bold",
         "normal": "#aaaaaa",
     })
 
@@ -160,7 +160,7 @@ def prompt_trust_folder(console: Console, cwd: Path) -> bool:
         "including custom commands, skills, and settings. These configurations\n"
         "could execute code on your behalf or change BhavAI's behavior.",
         title="[bold white]BhavAI - Trust Check[/bold white]",
-        border_style="blue",
+        border_style="white",
         padding=(1, 2),
     ))
 

@@ -20,7 +20,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from bhavai.config import logger, CWD
+from bhavai.config import logger, CWD, PROMPTS_DIR
 from bhavai.context import get_folder_tree_string, is_env_file
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -40,19 +40,38 @@ BLOCKED_COMMANDS = [
 
 def validate_path(path_str: str) -> Path:
     """
-    Ensures path_str resolves strictly inside CWD.
-    Raises ValueError if outside (blocks ../../ traversal, absolute escapes, etc.)
+    Ensures path_str resolves strictly inside CWD or PROMPTS_DIR (~/.bhavai/config/prompts/).
+    Raises ValueError if outside (blocks ../../ traversal, absolute escapes, etc.).
+    Access to any other directory outside CWD (including the rest of ~/.bhavai) is blocked.
     """
-    raw      = Path(path_str)
+    raw = Path(path_str).expanduser()
     resolved = raw.resolve() if raw.is_absolute() else (CWD / raw).resolve()
+
+    # 1. Check if inside CWD
     try:
         resolved.relative_to(CWD)
+        return resolved
     except ValueError:
-        raise ValueError(
-            f"Access Denied: '{path_str}' → '{resolved}' is outside "
-            f"the sandboxed directory '{CWD}'."
-        )
-    return resolved
+        pass
+
+    # 2. Check if inside PROMPTS_DIR (~/.bhavai/config/prompts/ or ~/.BhavAI/config/prompts/)
+    try:
+        resolved.relative_to(PROMPTS_DIR.resolve())
+        return resolved
+    except ValueError:
+        pass
+
+    alt_prompts = (Path.home() / ".BhavAI" / "config" / "prompts").resolve()
+    try:
+        resolved.relative_to(alt_prompts)
+        return resolved
+    except ValueError:
+        pass
+
+    raise ValueError(
+        f"Access Denied: '{path_str}' → '{resolved}' is outside "
+        f"the sandboxed directory '{CWD}' and outside the allowed prompts directory '{PROMPTS_DIR}'."
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────

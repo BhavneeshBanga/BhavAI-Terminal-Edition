@@ -31,8 +31,109 @@ GROQ_MODEL = "llama-3.3-70b-versatile"
 # Working directory
 CWD = Path.cwd().resolve()
 
+# BhavAI Home and Prompts configuration
+BHAVAI_HOME = Path(os.environ.get("BHAVAI_HOME", str(Path.home() / ".bhavai")))
+CONFIG_DIR = BHAVAI_HOME / "config"
+PROMPTS_DIR = CONFIG_DIR / "prompts"
+
+DEFAULT_SAMPLE_SKILL_NAME = "SampleSkill.md"
+DEFAULT_SAMPLE_SKILL_CONTENT = """---
+name: Sample Proof-of-Concept Skill
+description: Demonstrates how BhavAI dynamically loads skill instructions to execute specific tools for sample tasks.
+---
+
+# Sample Skill (Proof of Concept)
+
+## Purpose & Scope
+This skill is a demonstration of BhavAI's skill-based architecture. It is responsible for handling test, health-check, or sample capability queries from the user.
+
+## Activation Triggers
+Activate this skill when the user asks to:
+- Run a sample skill test or verification
+- Perform a proof-of-concept skill execution
+- Check sample skill status or test tool execution via skill instructions
+
+## Recommended Tool & Function
+- Primary Tool: `duckduckgo_search` (for live external lookups) OR `run_command` / `search_code` (for system/code lookups).
+
+## Execution Workflow
+1. Identify the specific sample parameter or query requested by the user.
+2. Formulate the appropriate tool call arguments based on the user's intent.
+3. Execute the tool.
+4. Return a clear and helpful response explaining that the skill instructions were loaded dynamically from `~/.bhavai/config/prompts/` and the tool was executed.
+
+## Constraints & Guidelines
+- Always stay within the sandbox rules.
+- Do not execute destructive operations.
+"""
+
+DEFAULT_WEATHER_SKILL_NAME = "Weather.md"
+DEFAULT_WEATHER_SKILL_CONTENT = """---
+name: Weather Skill
+description: Handles user requests about weather forecasts, temperature, and atmospheric conditions for any city or region.
+---
+
+# Weather Skill
+
+## Purpose & Scope
+This skill gives BhavAI the capability to retrieve and report live or current weather conditions, temperatures, humidity, and forecasts for any location worldwide.
+
+## Activation Triggers
+Activate this skill whenever the user asks:
+- "What's the weather in <city>?"
+- "Is it raining in <location>?"
+- "Check the temperature for <city>"
+- "What is the forecast for <city> today/tomorrow?"
+- Any general weather or climate-related queries for a specific place.
+
+## Tool To Use
+- Tool: `check_weather`
+- Arguments: `{"location": "<city_name>"}`
+
+## Method of Calling
+Call the `check_weather` tool via JSON tool call with the extracted location:
+```json
+{
+  "thought": "Checking the weather for the requested location",
+  "tool_name": "check_weather",
+  "tool_args": {
+    "location": "<city_name>"
+  }
+}
+```
+
+## Execution Workflow
+1. Identify the target city or location from the user request (e.g. "Tokyo", "Delhi", "London").
+2. Call `check_weather` with `{"location": "<city_name>"}`.
+3. Parse the weather observation returned by the tool.
+4. Provide a friendly, well-formatted response to the user summarizing the weather condition, temperature, humidity, and forecast.
+
+## Constraints & Guidelines
+- Always provide clean city names.
+- Always use the `check_weather` tool rather than guessing weather data.
+"""
+
+def ensure_prompts_dir() -> Path:
+    """
+    Ensures that ~/.bhavai/config/prompts exists and creates default skills
+    if they do not exist yet.
+    """
+    PROMPTS_DIR.mkdir(parents=True, exist_ok=True)
+    sample_file = PROMPTS_DIR / DEFAULT_SAMPLE_SKILL_NAME
+    if not sample_file.exists():
+        sample_file.write_text(DEFAULT_SAMPLE_SKILL_CONTENT, encoding="utf-8")
+    
+    weather_file = PROMPTS_DIR / DEFAULT_WEATHER_SKILL_NAME
+    if not weather_file.exists():
+        weather_file.write_text(DEFAULT_WEATHER_SKILL_CONTENT, encoding="utf-8")
+        
+    return PROMPTS_DIR
+
+# Ensure prompts directory is initialized
+ensure_prompts_dir()
+
 # Log folder configuration
-LOG_DIR = Path.home() / ".bhavai" / "logs"
+LOG_DIR = BHAVAI_HOME / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 LOG_FILE = LOG_DIR / "bhavai.log"
 

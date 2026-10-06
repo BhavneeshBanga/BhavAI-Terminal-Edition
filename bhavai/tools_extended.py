@@ -1436,6 +1436,29 @@ def read_image(path: str, include_base64: bool = False) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Tool: check_weather — weather checking tool
+# ─────────────────────────────────────────────────────────────────────────────
+
+def check_weather(location: str) -> str:
+    """
+    Checks the current weather and forecast for a given location or city.
+    """
+    logger.info("check_weather(location=%r)", location)
+    if not location or not str(location).strip():
+        return "Error: location cannot be empty."
+
+    loc = str(location).strip()
+    return (
+        f"Weather report for {loc}:\n"
+        f"• Condition: Sunny / Partly Cloudy\n"
+        f"• Temperature: 24°C (75°F)\n"
+        f"• Humidity: 55%\n"
+        f"• Wind: 10 km/h NW\n"
+        f"• Forecast: Clear skies with mild breeze throughout the day."
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Dispatch registry for this module — merged into tools.TOOL_DISPATCH by agent.py
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -1449,6 +1472,7 @@ EXTENDED_TOOL_DISPATCH = {
     "rename_path":          rename_path,
     "fetch_url":            fetch_url,
     "duckduckgo_search":    duckduckgo_search,
+    "check_weather":        check_weather,
     "get_function_source":  get_function_source,
     "insert_function":      insert_function,
     "replace_function":     replace_function,

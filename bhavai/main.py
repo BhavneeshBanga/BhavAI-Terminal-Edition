@@ -16,7 +16,7 @@ from pathlib import Path
 from rich.console import Console
 from rich.panel import Panel
 
-from bhavai.config import get_config_summary, CWD, logger
+from bhavai.config import get_config_summary, CWD, logger, ensure_prompts_dir
 from bhavai.context import get_folder_tree_string
 from bhavai.memory import ConversationMemory
 from bhavai.modes import AgentMode, prompt_and_confirm_plan
@@ -317,6 +317,7 @@ def wake(action):
     if not BhavAI_dot_folder.exists():
         BhavAI_dot_folder.mkdir()
         create_first_file_Note_from_bhavai()
+    ensure_prompts_dir()
 
 
     if not is_folder_trusted(CWD):

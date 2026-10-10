@@ -189,28 +189,40 @@ class SarvamProvider(LLMProvider):
 
                 content_str = "".join(full_content)
                 if not content_str.strip():
-                    raise RuntimeError("Sarvam API returned 200 stream but content is empty.")
+                    logger.warning("Sarvam API stream attempt %d returned empty content. Retrying in %.1f s...", attempt, delay)
+                    last_error = RuntimeError("Sarvam API returned 200 stream but content is empty.")
+                    time.sleep(delay)
+                    delay *= 2.0
+                    continue
 
                 return content_str, stop_reason
 
-            except httpx.RequestError as exc:
+            except (httpx.RequestError, RuntimeError) as exc:
                 logger.warning(
-                    "Sarvam API stream network error on attempt %d/%d: %s",
+                    "Sarvam API stream error on attempt %d/%d: %s",
                     attempt, max_retries, exc,
                 )
-                last_error = RuntimeError(f"Sarvam API network error: {exc}")
+                last_error = exc if isinstance(exc, RuntimeError) else RuntimeError(f"Sarvam API network error: {exc}")
                 if attempt == max_retries:
                     break
                 time.sleep(delay)
                 delay *= 2.0
                 continue
 
-            except RuntimeError:
-                raise
-
             except Exception as exc:
-                raise RuntimeError(f"Unexpected error streaming from Sarvam API: {exc}") from exc
+                logger.warning("Unexpected error streaming from Sarvam API attempt %d: %s", attempt, exc)
+                last_error = RuntimeError(f"Unexpected error streaming from Sarvam API: {exc}")
+                time.sleep(delay)
+                delay *= 2.0
+                continue
 
-        raise last_error or RuntimeError(
-            f"Sarvam API stream failed after {max_retries} attempts with no response."
-        )
+        # If streaming attempts were exhausted or empty, fall back seamlessly to non-streaming call!
+        logger.info("Falling back to non-streaming Sarvam API call...")
+        try:
+            content, stop_reason = self.call(messages, temperature=temperature, calls=calls)
+            if on_token and content:
+                on_token(content)
+            return content, stop_reason
+        except Exception as fallback_exc:
+            logger.error("Sarvam non-streaming fallback also failed: %s", fallback_exc)
+            raise last_error or fallback_exc

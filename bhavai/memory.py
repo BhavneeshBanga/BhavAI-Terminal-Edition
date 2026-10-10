@@ -2,6 +2,8 @@ from bhavai.config import logger
 from pathlib import Path
 
 
+import json
+
 class ConversationMemory:
     def __init__(self, max_chars: int = 100000):
         """
@@ -35,6 +37,32 @@ class ConversationMemory:
         for msg in self.messages:
             lines.append(f"### {msg['role'].upper()}\n\n{msg['content']}\n")
         Path(path).write_text("\n---\n\n".join(lines), encoding="utf-8")
+
+    def save_to_json(self, path) -> None:
+        """
+        Saves conversation memory messages array into a JSON file.
+        """
+        Path(path).write_text(json.dumps(self.messages, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    def load_from_json(self, path) -> bool:
+        """
+        Loads conversation memory messages array from a JSON file.
+        Returns True if successful, False otherwise.
+        """
+        file_path = Path(path)
+        if not file_path.exists():
+            return False
+        try:
+            data = json.loads(file_path.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                self.messages = data
+                return True
+            elif isinstance(data, dict) and "messages" in data and isinstance(data["messages"], list):
+                self.messages = data["messages"]
+                return True
+        except Exception as e:
+            logger.error("Failed to load session memory from %s: %s", path, e)
+        return False
 
 
 

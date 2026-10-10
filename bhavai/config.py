@@ -35,6 +35,7 @@ CWD = Path.cwd().resolve()
 BHAVAI_HOME = Path(os.environ.get("BHAVAI_HOME", str(Path.home() / ".bhavai")))
 CONFIG_DIR = BHAVAI_HOME / "config"
 PROMPTS_DIR = CONFIG_DIR / "prompts"
+BRAIN_DIR = BHAVAI_HOME / "brain"
 
 DEFAULT_SAMPLE_SKILL_NAME = "SampleSkill.md"
 DEFAULT_SAMPLE_SKILL_CONTENT = """---
@@ -129,8 +130,16 @@ def ensure_prompts_dir() -> Path:
         
     return PROMPTS_DIR
 
-# Ensure prompts directory is initialized
+def ensure_brain_dir() -> Path:
+    """
+    Ensures that ~/.bhavai/brain exists.
+    """
+    BRAIN_DIR.mkdir(parents=True, exist_ok=True)
+    return BRAIN_DIR
+
+# Ensure directories are initialized
 ensure_prompts_dir()
+ensure_brain_dir()
 
 # Log folder configuration
 LOG_DIR = BHAVAI_HOME / "logs"

@@ -157,22 +157,38 @@ class GroqProvider(LLMProvider):
 
                 content_str = "".join(full_content)
                 if not content_str.strip():
-                    raise RuntimeError("Groq API returned 200 stream but content is empty.")
+                    logger.warning("Groq API stream attempt %d returned empty content. Retrying in %.1f s...", attempt, delay)
+                    last_error = RuntimeError("Groq API returned 200 stream but content is empty.")
+                    time.sleep(delay)
+                    delay *= 2.0
+                    continue
 
                 norm_stop = "max_tokens" if stop_reason == "length" else (stop_reason or "stop")
                 return content_str, norm_stop
 
-            except httpx.RequestError as exc:
-                logger.warning("Groq API stream network error attempt %d/%d: %s", attempt, max_retries, exc)
-                last_error = RuntimeError(f"Groq API network error: {exc}")
+            except (httpx.RequestError, RuntimeError) as exc:
+                logger.warning("Groq API stream error attempt %d/%d: %s", attempt, max_retries, exc)
+                last_error = exc if isinstance(exc, RuntimeError) else RuntimeError(f"Groq API network error: {exc}")
                 if attempt == max_retries:
                     break
                 time.sleep(delay)
                 delay *= 2.0
                 continue
-            except RuntimeError:
-                raise
-            except Exception as exc:
-                raise RuntimeError(f"Unexpected error streaming from Groq API: {exc}") from exc
 
-        raise last_error or RuntimeError(f"Groq API stream failed after {max_retries} attempts.")
+            except Exception as exc:
+                logger.warning("Unexpected error streaming from Groq API attempt %d: %s", attempt, exc)
+                last_error = RuntimeError(f"Unexpected error streaming from Groq API: {exc}")
+                time.sleep(delay)
+                delay *= 2.0
+                continue
+
+        # If streaming attempts were exhausted or empty, fall back seamlessly to non-streaming call!
+        logger.info("Falling back to non-streaming Groq API call...")
+        try:
+            content, stop_reason = self.call(messages, temperature=temperature, calls=calls)
+            if on_token and content:
+                on_token(content)
+            return content, stop_reason
+        except Exception as fallback_exc:
+            logger.error("Groq non-streaming fallback also failed: %s", fallback_exc)
+            raise last_error or fallback_exc

@@ -16,7 +16,7 @@ from pathlib import Path
 from rich.console import Console
 from rich.panel import Panel
 
-from bhavai.config import get_config_summary, CWD, logger, ensure_prompts_dir
+from bhavai.config import get_config_summary, CWD, logger, ensure_prompts_dir, ensure_brain_dir, BRAIN_DIR
 from bhavai.context import get_folder_tree_string
 from bhavai.memory import ConversationMemory
 from bhavai.modes import AgentMode, prompt_and_confirm_plan
@@ -299,7 +299,8 @@ def main(ctx, show_help):
 
 @main.command()
 @click.argument("action", default="up")
-def wake(action):
+@click.option("--resume", default=None, help="Resume conversation by session hash.")
+def wake(action, resume):
     """Activates the agent in the current working directory."""
 
     
@@ -442,9 +443,35 @@ def wake(action):
         console.print(f"[yellow]Warning: Could not build folder tree: {e}[/yellow]")
     console.print()
 
-    # Initialize session state
+    # Initialize session state & memory
+    import uuid
     current_mode = AgentMode.PLAN
     memory = ConversationMemory()
+    brain_dir = ensure_brain_dir()
+
+    if resume:
+        session_hash = str(resume).strip().removesuffix(".json").removesuffix(".md")
+        json_file = brain_dir / f"{session_hash}.json"
+        md_file = brain_dir / f"{session_hash}.md"
+
+        loaded = False
+        if json_file.exists():
+            loaded = memory.load_from_json(json_file)
+        elif md_file.exists():
+            loaded = memory.load_from_json(md_file)
+
+        if loaded:
+            console.print(f"[bold green]✓ Conversation resumed from session hash: {session_hash}[/bold green] ({len(memory.messages)} messages loaded)\n")
+        else:
+            console.print(f"[bold red]Error:[/bold red] Could not find saved session for hash [yellow]'{resume}'[/yellow] in {brain_dir}")
+            sys.exit(1)
+    else:
+        session_hash = uuid.uuid4().hex[:8]
+
+    def _save_brain_session():
+        if memory.messages:
+            memory.save_to_json(brain_dir / f"{session_hash}.json")
+            memory.save_to_file(brain_dir / f"{session_hash}.md")
 
     from prompt_toolkit.formatted_text import HTML
 
@@ -459,10 +486,8 @@ def wake(action):
     paste_kb, paste_store, paste_counter, get_and_reset_bursts = build_paste_keybindings(
         CWD, on_image_pasted=_record_pasted_image
     )
-    # paste_store: dict[int, str] = {}
 
     session = PromptSession(key_bindings=paste_kb)
-
 
     def get_prompt_text():
         """
@@ -478,8 +503,7 @@ def wake(action):
         else:
             return HTML('<ansiyellow><b>(agent)</b></ansiyellow> > ')
 
-
-    SESSION_NAME = "NEW_CHAT_" + str(int(time.time()))
+    SESSION_NAME = f"CHAT_{session_hash}"
 # SESSION_NAME = "NEW_CHAT_" + str(int(time.time()))
     # def print_bhavai_terminal_agent():
         
@@ -695,7 +719,8 @@ def wake(action):
                 
             # Exit conditions
             if not is_command and user_input.lower() in ("exit", "quit"):
-                console.print("[green]Goodbye from BhavAI! Waking down...[/green]")
+                _save_brain_session()
+                console.print(f"\n[bold green]To resume this conversation run this command with the hash:[/bold green]\n[bold yellow]bhav wake up --resume {session_hash}[/bold yellow]\n")
                 break
                 
             # Task Execution

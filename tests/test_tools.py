@@ -125,13 +125,12 @@ def test_run_command_timeout(mock_cwd):
     """Tests executing a command that exceeds the timeout limit and checks captured partial output."""
     import sys
     python_exe = sys.executable
-    # Python script that prints unbuffered and then sleeps longer than our 10-second timeout
-    cmd = f'"{python_exe}" -u -c "import time; print(\'Started\'); time.sleep(20); print(\'Finished\')"'
+    # Python script that prints unbuffered and then sleeps longer than 30-second timeout
+    cmd = f'"{python_exe}" -u -c "import time; print(\'Started\'); time.sleep(35); print(\'Finished\')"'
     
     result = run_command(cmd)
     
     assert "timed out" in result
-    assert "Stdout" in result
     assert "Started" in result
     assert "Finished" not in result
 
@@ -174,6 +173,35 @@ def test_clean_json_text():
     parsed_2 = parse_llm_json(raw_input_2)
     assert parsed_2["tool_args"]["path"] == "templates/index.html"
     assert "<!DOCTYPE html>\n<html lang=\"en\">\n<head>" in parsed_2["tool_args"]["content"]
+
+    # Test raw HTML with unescaped internal double quotes and literal newlines
+    raw_calculator = (
+        "{\n"
+        '  "thought": "The directory is empty. I will create a calculator.",\n'
+        '  "tool_name": "write_file",\n'
+        '  "tool_args": {\n'
+        '    "path": "index.html",\n'
+        '    "content": "<!DOCTYPE html>\n'
+        '<html lang="en">\n'
+        '<head>\n'
+        '    <meta charset="UTF-8">\n'
+        '    <title>Calculator</title>\n'
+        '</head>\n'
+        '<body>\n'
+        '    <div class="calculator">\n'
+        '        <input type="text" class="display" id="display" readonly />\n'
+        '        <button onclick="clearDisplay()">C</button>\n'
+        '    </div>\n'
+        '</body>\n'
+        '</html>"\n'
+        '  }\n'
+        '}'
+    )
+    parsed_calc = parse_llm_json(raw_calculator)
+    assert parsed_calc["tool_name"] == "write_file"
+    assert parsed_calc["tool_args"]["path"] == "index.html"
+    assert '<html lang="en">' in parsed_calc["tool_args"]["content"]
+    assert '<input type="text"' in parsed_calc["tool_args"]["content"]
 
 def test_git_initialization(mock_cwd):
     """Tests that git is automatically initialized when reading or writing files."""

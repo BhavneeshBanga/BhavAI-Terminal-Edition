@@ -497,11 +497,108 @@ def _parse_tool_call_tags(text: str) -> dict | None:
     }
 
 
+def _structural_fallback_parse(text: str) -> dict | None:
+    """
+    Fallback extractor for malformed LLM JSON where content contains unescaped
+    quotes or literal newlines (e.g. HTML/JS code inside write_file/append_chunk).
+    """
+    cleaned = _extract_json_block(text)
+    if not cleaned or not cleaned.startswith("{"):
+        return None
+
+    # 1. Extract tool_name
+    tool_match = re.search(r'"tool_name"\s*:\s*"([^"]+)"', cleaned)
+    if not tool_match:
+        tool_match = re.search(r'["\']?tool_name["\']?\s*:\s*["\']?([a-zA-Z0-9_]+)["\']?', cleaned)
+    if not tool_match:
+        return None
+    tool_name = tool_match.group(1).strip()
+
+    # 2. Extract thought
+    thought = ""
+    thought_match = re.search(r'"thought"\s*:\s*"(.*?)"\s*,\s*"tool_name"', cleaned, re.DOTALL)
+    if not thought_match:
+        thought_match = re.search(r'"thought"\s*:\s*"(.*?)"(?:\s*,\s*|\s*\n)', cleaned, re.DOTALL)
+    if not thought_match:
+        thought_match = re.search(r'["\']?thought["\']?\s*:\s*["\'](.*?)["\']\s*[,}]', cleaned, re.DOTALL)
+    if thought_match:
+        thought = thought_match.group(1).replace('\\"', '"').replace('\\n', '\n').strip()
+
+    # 3. Extract tool_args
+    tool_args = {}
+    args_block_match = re.search(r'"tool_args"\s*:\s*\{(.*)\}', cleaned, re.DOTALL)
+    if not args_block_match:
+        args_block_match = re.search(r'["\']?tool_args["\']?\s*:\s*\{(.*)\}', cleaned, re.DOTALL)
+
+    if args_block_match:
+        args_inner = args_block_match.group(1).strip()
+
+        # Extract path
+        path_match = re.search(r'"path"\s*:\s*"([^"]+)"', args_inner)
+        if path_match:
+            tool_args["path"] = path_match.group(1)
+
+        # Extract answer (for final_answer)
+        if tool_name == "final_answer":
+            ans_match = re.search(r'"answer"\s*:\s*"(.*)"\s*$', args_inner, re.DOTALL)
+            if not ans_match:
+                ans_match = re.search(r'"answer"\s*:\s*"(.*)', args_inner, re.DOTALL)
+            if ans_match:
+                tool_args["answer"] = ans_match.group(1).rstrip('"} \n').replace('\\"', '"').replace('\\n', '\n')
+
+        # Extract command (for run_command)
+        if tool_name == "run_command":
+            cmd_match = re.search(r'"command"\s*:\s*"(.*)"\s*$', args_inner, re.DOTALL)
+            if not cmd_match:
+                cmd_match = re.search(r'"command"\s*:\s*"(.*)', args_inner, re.DOTALL)
+            if cmd_match:
+                tool_args["command"] = cmd_match.group(1).rstrip('"} \n').replace('\\"', '"').replace('\\n', '\n')
+
+        # Extract location (for check_weather)
+        loc_match = re.search(r'"location"\s*:\s*"([^"]+)"', args_inner)
+        if loc_match:
+            tool_args["location"] = loc_match.group(1)
+
+        # Extract query (for duckduckgo_search, search_code)
+        query_match = re.search(r'"query"\s*:\s*"([^"]+)"', args_inner)
+        if query_match:
+            tool_args["query"] = query_match.group(1)
+
+        # Extract content (for write_file, update_file)
+        if "content" in args_inner:
+            content_match = re.search(r'"content"\s*:\s*"(.*)', args_inner, re.DOTALL)
+            if content_match:
+                raw_c = content_match.group(1)
+                raw_c = re.sub(r'"\s*\}\s*$', '', raw_c)
+                raw_c = re.sub(r'"\s*$', '', raw_c)
+                tool_args["content"] = raw_c
+
+        # Extract chunk and done (for append_chunk)
+        if "chunk" in args_inner:
+            done_match = re.search(r'"done"\s*:\s*(true|false)', args_inner, re.IGNORECASE)
+            tool_args["done"] = (done_match.group(1).lower() == "true") if done_match else False
+
+            chunk_match = re.search(r'"chunk"\s*:\s*"(.*?)"\s*,\s*"done"', args_inner, re.DOTALL)
+            if not chunk_match:
+                chunk_match = re.search(r'"chunk"\s*:\s*"(.*)', args_inner, re.DOTALL)
+            if chunk_match:
+                raw_chunk = chunk_match.group(1)
+                raw_chunk = re.sub(r'"\s*,\s*"done".*$', '', raw_chunk, flags=re.DOTALL)
+                raw_chunk = re.sub(r'"\s*\}\s*$', '', raw_chunk)
+                tool_args["chunk"] = raw_chunk
+
+    return {
+        "thought": thought,
+        "tool_name": tool_name,
+        "tool_args": tool_args,
+    }
+
+
 def parse_llm_json(raw_text: str) -> dict:
     """
     Parses LLM output into a dict.
     Tries XML <tool_call> tag format first (Sarvam-105B fallback),
-    then falls back to JSON parsing.
+    then standard JSON cleaning, then structural fallback extraction.
     Raises ValueError with an actionable message on failure.
     """
     # ── Layer 0: try XML tag format (Sarvam-105B often uses this) ──
@@ -516,14 +613,22 @@ def parse_llm_json(raw_text: str) -> dict:
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError as e:
-        logger.error("JSON parse failed: %s | cleaned=%r", e, cleaned[:500])
-        raise ValueError(
-            f"Invalid JSON — {e.msg} at line {e.lineno} col {e.colno}. "
-            + ("Your response was likely cut off due to the 4096-token output limit. "
-            "FIX: Use append_chunk with ≤50 lines per call instead of one large write."
-            if provider_needs_chunking() else
-            "The response may be malformed — check the JSON structure.")
-        )
+        logger.debug("Standard JSON parse failed, trying structural fallback: %s", e)
+
+    # ── Layer 2: structural fallback for unescaped code / quotes ──
+    structural = _structural_fallback_parse(raw_text)
+    if structural and structural.get("tool_name"):
+        logger.info("parse_llm_json: structural fallback successfully parsed %s", structural.get("tool_name"))
+        return structural
+
+    logger.error("All JSON parsing strategies failed | raw=%r", raw_text[:500])
+    raise ValueError(
+        "Invalid JSON — could not parse response into a tool call structure. "
+        + ("Your response was likely cut off due to the 4096-token output limit. "
+        "FIX: Use append_chunk with ≤50 lines per call instead of one large write."
+        if provider_needs_chunking() else
+        "The response may be malformed — check the JSON structure.")
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -585,7 +690,7 @@ def _run_agent_loop(
     memory:           ConversationMemory,
     current_mode:     str,
     task_prompt:      str,
-    max_steps:        int     = 30,
+    max_steps:        int     = 60,
     console:          Console = None,
     require_approval: bool    = True,
     planner_state     = None,
@@ -829,7 +934,7 @@ def run_agent_loop_plan(
     current_mode: str,
     plan_steps    = None,
     planner_state = None,
-    max_steps:    int  = 30,
+    max_steps:    int  = 60,
     console:      Console = None,
 ) -> str:
     """
@@ -884,7 +989,7 @@ def run_agent_loop_autonomous(
     memory:       ConversationMemory,
     current_mode: str,
     plan_steps:   list = None,
-    max_steps:    int  = 30,
+    max_steps:    int  = 60,
     console:      Console = None,
 ) -> str:
     """

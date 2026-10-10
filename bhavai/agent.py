@@ -617,6 +617,8 @@ def _run_agent_loop(
         token_budget_block=_token_budget_block(),
     )
 
+    # print("System prompt\n ", system_prompt)
+
     step_count            = 0
     consecutive_json_errs = 0
     calls = 0

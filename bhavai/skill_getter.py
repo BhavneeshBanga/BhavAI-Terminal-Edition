@@ -124,4 +124,5 @@ def discover_skills_from_dot_bhavai(cwd: Path = None) -> str:
 
 if __name__ == "__main__":
     from bhavai.config import CWD
-    print(discover_skills_from_dot_bhavai(CWD))
+    # print(discover_skills_from_dot_bhavai(CWD))
+    print(list_available_skills(CWD))

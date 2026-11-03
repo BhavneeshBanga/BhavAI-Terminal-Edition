@@ -1,9 +1,9 @@
-"""
-tools.py — Sandboxed, blocklist-validated tools available to the BhavAI agent.
+﻿"""
+tools.py â€” Sandboxed, blocklist-validated tools available to the BhavAI agent.
 
 Key addition over v1
 --------------------
-`append_chunk(path, chunk, done)` — purpose-built for the 4096-token limit.
+`append_chunk(path, chunk, done)` â€” purpose-built for the 4096-token limit.
 Instead of writing an entire file in one shot (which truncates the response),
 the LLM writes 50 lines at a time and calls append_chunk repeatedly, setting
 done=True only on the last chunk.  This guarantees no single LLM response
@@ -23,9 +23,9 @@ from pathlib import Path
 from bhavai.config import logger, CWD, PROMPTS_DIR
 from bhavai.context import get_folder_tree_string, is_env_file
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Security: command blocklist
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 BLOCKED_COMMANDS = [
     "rm", "rmdir", "del", "unlink",
@@ -34,9 +34,9 @@ BLOCKED_COMMANDS = [
 ]
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Path sandboxing
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def validate_path(path_str: str) -> Path:
     """
@@ -69,14 +69,14 @@ def validate_path(path_str: str) -> Path:
         pass
 
     raise ValueError(
-        f"Access Denied: '{path_str}' → '{resolved}' is outside "
+        f"Access Denied: '{path_str}' â†’ '{resolved}' is outside "
         f"the sandboxed directory '{CWD}' and outside the allowed prompts directory '{PROMPTS_DIR}'."
     )
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Command validation
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def validate_command(command: str) -> None:
     """Word-boundary regex check against BLOCKED_COMMANDS. Raises on match."""
@@ -88,19 +88,19 @@ def validate_command(command: str) -> None:
             )
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Git initialisation
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def ensure_git_initialized() -> None:
     """
-    Idempotent — runs only once per session (returns immediately if .git/ exists).
+    Idempotent â€” runs only once per session (returns immediately if .git/ exists).
 
     On first call:
       1. Creates a sensible .gitignore if none exists.
       2. git init
       3. Sets local user.name / user.email (avoids "Author identity unknown" errors).
-      4. git add .  →  initial commit
+      4. git add .  â†’  initial commit
 
     After this, every write/append_chunk call stages the changed file via
     _git_stage() so the user can always run `git diff HEAD` to see what the
@@ -110,7 +110,7 @@ def ensure_git_initialized() -> None:
     if git_dir.exists() and git_dir.is_dir():
         return                                # already initialised
 
-    logger.info("Initialising Git repository in '%s' for change tracking…", CWD)
+    logger.info("Initialising Git repository in '%s' for change trackingâ€¦", CWD)
     try:
         # 1. Default .gitignore
         gi_path = CWD / ".gitignore"
@@ -132,13 +132,13 @@ def ensure_git_initialized() -> None:
                 capture_output=True, text=True, check=True,
             )
 
-        # 2–5. Init, identity, stage, commit
+        # 2â€“5. Init, identity, stage, commit
         _run("git", "init")
         _run("git", "config", "user.name",  "BhavAI")
         _run("git", "config", "user.email", "bhavai@local.ai")
         _run("git", "add", ".")
         _run("git", "commit", "--allow-empty",
-             "-m", "Initial commit — created by BhavAI before first file operation")
+             "-m", "Initial commit â€” created by BhavAI before first file operation")
 
         logger.info("Git repository ready.")
 
@@ -160,9 +160,9 @@ def _git_stage(resolved: Path) -> None:
         logger.debug("_git_stage silent error: %s", exc)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Tool: list_folder
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def list_folder(path: str = ".") -> str:
     """
@@ -177,23 +177,23 @@ def list_folder(path: str = ".") -> str:
     return get_folder_tree_string(resolved)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Tool: read_file
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def read_file(path: str) -> str:
     """
     Reads and returns full text content of a file inside CWD.
     Git is initialised first so every workspace is always tracked.
 
-    SECURITY: .env and secrets files are hard-blocked — their content
+    SECURITY: .env and secrets files are hard-blocked â€” their content
     is never returned to the agent or sent to the LLM.
     """
     logger.info("read_file('%s')", path)
     ensure_git_initialized()
     resolved = validate_path(path)
 
-    # ── Env / secrets guard ───────────────────────────── #
+    # â”€â”€ Env / secrets guard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ #
     if is_env_file(resolved):
         logger.warning("Blocked read attempt on secrets file: '%s'", path)
         return (
@@ -213,9 +213,9 @@ def read_file(path: str) -> str:
         return f"Error reading '{path}': {exc}"
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Tool: write_file
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def write_file(path: str, content: str) -> str:
     """
@@ -226,7 +226,7 @@ def write_file(path: str, content: str) -> str:
     ensure_git_initialized()
     resolved = validate_path(path)
 
-    # ── Env / secrets guard ───────────────────────────── #
+    # â”€â”€ Env / secrets guard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ #
     if is_env_file(resolved):
         logger.warning("Blocked write attempt on secrets file: '%s'", path)
         return (
@@ -248,7 +248,7 @@ def write_file(path: str, content: str) -> str:
         resolved.write_text(content, encoding="utf-8")
         _git_stage(resolved)
         return (
-            f"✓ '{path}' written ({len(content):,} chars, {line_count} lines). "
+            f"âœ“ '{path}' written ({len(content):,} chars, {line_count} lines). "
             f"Use `git diff HEAD` to review."
         )
     except Exception as exc:
@@ -256,9 +256,9 @@ def write_file(path: str, content: str) -> str:
         return f"Error writing '{path}': {exc}"
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Tool: update_file  (legacy — kept for backward compat)
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Tool: update_file  (legacy â€” kept for backward compat)
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def update_file(path: str, content: str, mode: str = "append") -> str:
     """
@@ -279,19 +279,19 @@ def update_file(path: str, content: str, mode: str = "append") -> str:
         with open(resolved, "a", encoding="utf-8") as fh:
             fh.write(content)
         _git_stage(resolved)
-        return f"✓ Appended {len(content):,} chars to '{path}'."
+        return f"âœ“ Appended {len(content):,} chars to '{path}'."
     except Exception as exc:
         logger.error("update_file('%s'): %s", path, exc)
         return f"Error updating '{path}': {exc}"
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Tool: append_chunk  ← THE KEY FIX FOR THE 4096-TOKEN LIMIT
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Tool: append_chunk  â† THE KEY FIX FOR THE 4096-TOKEN LIMIT
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 # Tracks which files are currently being written in chunks so we can give
 # progress feedback and detect misuse (e.g. done=true on first chunk).
-_chunk_state: dict[str, int] = {}   # path → total chars written so far
+_chunk_state: dict[str, int] = {}   # path â†’ total chars written so far
 
 def append_chunk(path: str, chunk: str, done: bool = False) -> str:
     """
@@ -300,7 +300,7 @@ def append_chunk(path: str, chunk: str, done: bool = False) -> str:
     Parameters
     ----------
     path  : File path relative to CWD (created automatically if it doesn't exist).
-    chunk : The text to append.  Should be ≤ 50 lines to stay inside the
+    chunk : The text to append.  Should be â‰¤ 50 lines to stay inside the
             4096-token output budget.
     done  : Set to true ONLY on the final chunk.  Triggers Git staging and
             returns a completion summary.
@@ -320,7 +320,7 @@ def append_chunk(path: str, chunk: str, done: bool = False) -> str:
 
     resolved = validate_path(path)
 
-    # ── Env / secrets guard ───────────────────────────── #
+    # â”€â”€ Env / secrets guard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ #
     if is_env_file(resolved):
         logger.warning("Blocked append_chunk attempt on secrets file: '%s'", path)
         return (
@@ -331,7 +331,7 @@ def append_chunk(path: str, chunk: str, done: bool = False) -> str:
     try:
         resolved.parent.mkdir(parents=True, exist_ok=True)
 
-        # First chunk → create/overwrite; subsequent → append
+        # First chunk â†’ create/overwrite; subsequent â†’ append
         write_mode = "a" if path in _chunk_state else "w"
 
 
@@ -339,7 +339,7 @@ def append_chunk(path: str, chunk: str, done: bool = False) -> str:
         if path in _chunk_state:
             write_mode = "a"          # isi session mein pehle se chunks likhe ja chuke hain
         elif resolved.exists():
-            write_mode = "a"          # file disk pe already hai — genuinely append karo
+            write_mode = "a"          # file disk pe already hai â€” genuinely append karo
         else:
             write_mode = "w"
 
@@ -356,13 +356,13 @@ def append_chunk(path: str, chunk: str, done: bool = False) -> str:
             _git_stage(resolved)
             del _chunk_state[path]                  # reset state
             return (
-                f"✓ Final chunk written. '{path}' is complete "
+                f"âœ“ Final chunk written. '{path}' is complete "
                 f"({total:,} total chars). "
                 f"Run `git diff HEAD` to review all changes."
             )
         else:
             return (
-                f"✓ Chunk appended to '{path}' "
+                f"âœ“ Chunk appended to '{path}' "
                 f"({line_count} lines, {len(chunk):,} chars this chunk, "
                 f"{total:,} chars total so far). "
                 f"Continue with next chunk or set done=true when finished."
@@ -375,9 +375,9 @@ def append_chunk(path: str, chunk: str, done: bool = False) -> str:
         return f"Error in append_chunk for '{path}': {exc}"
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Tool: run_command
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 import subprocess, sys, threading, os
 MAX_LINES = 40  # ya jo bhi limit chahiye, k value
 
@@ -423,9 +423,9 @@ def run_command(command: str) -> str:
             command, shell=True, cwd=CWD,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, bufsize=1,
-            encoding="utf-8",     # 👈 force UTF-8, cp1252 guess mat karo
-            errors="replace",     # 👈 invalid byte aaye toh crash nahi, replace ho jayega
-            env={**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"},  # 👈 child process ko bhi utf-8 force karo
+            encoding="utf-8",     # ðŸ‘ˆ force UTF-8, cp1252 guess mat karo
+            errors="replace",     # ðŸ‘ˆ invalid byte aaye toh crash nahi, replace ho jayega
+            env={**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"},  # ðŸ‘ˆ child process ko bhi utf-8 force karo
         )
 
         t = threading.Thread(target=stream_reader, args=(proc.stdout,))
@@ -504,7 +504,7 @@ def run_command(command: str) -> str:
 def get_project_memory_string(cwd: Path) -> str:
     """
     Root folder mein BHAVAI.md dhoondta hai (case-insensitive glob).
-    Agar mile to uska text content return karta hai, warna empty string —
+    Agar mile to uska text content return karta hai, warna empty string â€”
     empty string return hone se system prompt mein us section ko clean
     skip kiya ja sakta hai (koi "file not found" noise nahi).
     """
@@ -517,29 +517,31 @@ def get_project_memory_string(cwd: Path) -> str:
                 return ""
     return ""
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Tool dispatch registry
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 TOOL_DISPATCH = {
     "list_folder":   list_folder,
     "read_file":     read_file,
     "write_file":    write_file,
     "update_file":   update_file,    # legacy
-    "append_chunk":  append_chunk,   # ← NEW: token-safe chunked writing
+    "append_chunk":  append_chunk,   # â† NEW: token-safe chunked writing
     "run_command":   run_command,
     # 'final_answer' is handled directly in agent.py
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Extended tool registry (tools_extended.py) — merged in here, at the bottom,
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Extended tool registry (tools_extended.py) â€” merged in here, at the bottom,
 # to avoid a circular import (tools_extended imports validate_path / CWD /
 # ensure_git_initialized / _git_stage FROM this module).
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 from bhavai.tools_extended import EXTENDED_TOOL_DISPATCH  # noqa: E402
+from bhavai.agents import AGENT_DISPATCHERS               # noqa: E402
 
 TOOL_DISPATCH.update(EXTENDED_TOOL_DISPATCH)
+TOOL_DISPATCH.update(AGENT_DISPATCHERS)  # merges calendar_schedule, calendar_list, etc.
 
 
 

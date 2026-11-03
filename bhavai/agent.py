@@ -1,4 +1,4 @@
-"""
+﻿"""
 agent.py — BhavAI Core ReAct Loop
 
 Architecture for 4096-token LLM output limit
@@ -199,6 +199,17 @@ AVAILABLE TOOLS
     Returns image metadata (dimensions, format, file size) for image files.
     Supports PNG, JPEG, GIF, BMP, WebP, SVG, ICO without requiring Pillow.
     Set include_base64=true to get base64 data URI (for vision models).
+
+
+📅 Google Calendar Agent (read calendar_agent_skill.md first):
+- calendar_schedule   -> {{\"instruction\": \"string - full event description from user\"}}
+    Creates a new event on Google Calendar. Parses date, time, title, reminders automatically.
+- calendar_list       -> {{\"period\": \"today|tomorrow|week\"}}
+    Lists upcoming events. Default period is today.
+- calendar_delete     -> {{\"query\": \"event title or keyword to search\"}}
+    Searches upcoming events and deletes the matching one.
+- calendar_free_slots -> {{\"date\": \"string (natural lang)\", \"instruction\": \"string\"}}
+    Finds free 30+ min slots on a day. Working hours 9AM-9PM.
 
 📋 Project & Task Completion:
 - list_todos    → {{"path": "string (default '.')"}}
